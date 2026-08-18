@@ -1,3 +1,4 @@
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
@@ -20,7 +21,14 @@ def get_user_by_id(
     admin_user: User = Depends(require_roles('admin', 'user_admin', 'super_admin'))
 ):
     """Retrieves full profile for a given user ID (Admin/User Admin/Super Admin)."""
-    user = db.query(User).filter(User.user_id == user_id).first()
+    try:
+        user_uuid = uuid.UUID(str(user_id)) if not isinstance(user_id, uuid.UUID) else user_id
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="USER_NOT_FOUND"
+        )
+    user = db.query(User).filter(User.user_id == user_uuid).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -36,7 +44,14 @@ def change_user_status(
     admin_user: User = Depends(require_roles('user_admin', 'super_admin'))
 ):
     """Suspends, reinstates, or updates status of a user account (User Admin / Super Admin)."""
+    try:
+        user_uuid = uuid.UUID(str(user_id)) if not isinstance(user_id, uuid.UUID) else user_id
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="USER_NOT_FOUND"
+        )
     updated_user = AuthService.update_user_status(
-        db, user_id=user_id, new_status=req.status, changed_by=str(admin_user.user_id), reason_code=req.reason_code
+        db, user_id=user_uuid, new_status=req.status, changed_by=admin_user.user_id, reason_code=req.reason_code
     )
     return updated_user

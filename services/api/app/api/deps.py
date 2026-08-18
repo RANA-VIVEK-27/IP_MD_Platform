@@ -1,3 +1,4 @@
+import uuid
 from typing import Callable, List, Optional
 from fastapi import Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
@@ -37,7 +38,15 @@ def get_current_user(
             detail="UNAUTHORIZED: Invalid token payload"
         )
 
-    user = db.query(User).filter(User.user_id == user_id).first()
+    try:
+        user_uuid = uuid.UUID(str(user_id)) if not isinstance(user_id, uuid.UUID) else user_id
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="UNAUTHORIZED: Invalid token payload"
+        )
+
+    user = db.query(User).filter(User.user_id == user_uuid).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

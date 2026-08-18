@@ -21,15 +21,10 @@ config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name)
 
-# Set database URL from environment variables if present
-db_user = os.getenv("POSTGRES_USER", "ipmd_admin")
-db_pass = os.getenv("POSTGRES_PASSWORD", "ipmd_secret")
-db_host = os.getenv("POSTGRES_HOST", "localhost")
-db_port = os.getenv("POSTGRES_PORT", "5434")
-db_name = os.getenv("POSTGRES_DB", "ipmd_db")
+from app.core.config import settings
 
-db_url = os.getenv("DATABASE_URL", f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
-config.set_main_option("sqlalchemy.url", db_url)
+# Set database URL from centralized settings
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 target_metadata = Base.metadata
 

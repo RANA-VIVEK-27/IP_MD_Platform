@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 class Settings:
     POSTGRES_USER: str = os.getenv("POSTGRES_USER", "ipmd_admin")

@@ -1,14 +1,14 @@
 import uuid
 import pytest
+from datetime import datetime, timezone
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session
 
 from app.main import app
 from app.db.session import get_db
 from app.core.config import settings
-from app.models.identity import User, DoctorLicense, Permission, AdminPermission, AccountStatusHistory
-from app.core.security import hash_password
+from app.models.identity import User, DoctorLicense, Permission, AdminPermission, AccountStatusHistory, RefreshToken
+from app.core.security import hash_password, hash_token
 
 client = TestClient(app)
 
@@ -99,7 +99,7 @@ def test_oauth_registration_and_login(unique_email):
     data = res_oauth.json()
     assert "access_token" in data
     assert data["user"]["email"] == unique_email
-    assert data["user"]["status"] == "active" # OAuth activates immediately post-callback
+    assert data["user"]["status"] == "active"  # OAuth activates immediately post-callback
     assert data["is_new_user"] is True
 
 def test_login_and_request_rejected_while_suspended(unique_email):
@@ -244,3 +244,78 @@ def test_admin_permissions_check():
     res_allowed = client.get("/api/v1/admin/gated-feature", headers={"Authorization": f"Bearer {super_token}"})
     assert res_allowed.status_code == 200
     assert res_allowed.json()["status"] == "success"
+
+def test_register_and_login_all_seven_roles():
+    """Validates registration and login for all 7 role types defined in the BRD."""
+    roles = [
+        ("patient", {}),
+        ("doctor", {"license_number": "MED-REG-9999"}),
+        ("pharmacy_staff_owned", {"pharmacy_details": {"pharmacy_name": "Central Depot", "address": {"city": "Mumbai"}}}),
+        ("partner_pharmacy", {"pharmacy_details": {"pharmacy_name": "Local Partner", "address": {"city": "Delhi"}}}),
+        ("admin", {}),
+        ("user_admin", {}),
+        ("super_admin", {})
+    ]
+
+    for role_name, extra_fields in roles:
+        email = f"role_test_{role_name}_{uuid.uuid4().hex[:6]}@example.com"
+        reg_body = {
+            "role": role_name,
+            "full_name": f"Test {role_name.title()}",
+            "email": email,
+            "password": "RolePassword123!",
+            **extra_fields
+        }
+        res_reg = client.post("/api/v1/auth/register", json=reg_body)
+        assert res_reg.status_code == 201, f"Failed registering role {role_name}: {res_reg.text}"
+        assert res_reg.json()["role"] == role_name
+
+        # Activate
+        res_ver = client.post("/api/v1/auth/verify-email", json={"email": email})
+        assert res_ver.status_code == 200
+
+        # Login
+        res_login = client.post("/api/v1/auth/login", json={"email": email, "password": "RolePassword123!"})
+        assert res_login.status_code == 200
+        data = res_login.json()
+        assert data["user"]["role"] == role_name
+        assert "access_token" in data
+        assert "refresh_token" in data
+
+def test_refresh_token_hashing_rotation_and_logout(unique_email):
+    """Verifies that refresh tokens are hashed in DB, rotated properly, and can be logged out."""
+    reg_payload = {
+        "role": "patient",
+        "full_name": "Token Lifecycle Patient",
+        "email": unique_email,
+        "password": "Password123!"
+    }
+    client.post("/api/v1/auth/register", json=reg_payload)
+    client.post("/api/v1/auth/verify-email", json={"email": unique_email})
+    login_res = client.post("/api/v1/auth/login", json={"email": unique_email, "password": "Password123!"})
+    tokens = login_res.json()
+    raw_refresh = tokens["refresh_token"]
+
+    # 1. Verify that raw_refresh token itself is NOT stored in DB, but SHA-256 hashed
+    expected_hash = hash_token(raw_refresh)
+    assert raw_refresh != expected_hash
+
+    # 2. Rotate refresh token
+    refresh_res = client.post("/api/v1/auth/refresh", json={"refresh_token": raw_refresh})
+    assert refresh_res.status_code == 200
+    new_tokens = refresh_res.json()
+    new_raw_refresh = new_tokens["refresh_token"]
+    assert new_raw_refresh != raw_refresh
+
+    # 3. Old refresh token should now be rejected
+    old_refresh_res = client.post("/api/v1/auth/refresh", json={"refresh_token": raw_refresh})
+    assert old_refresh_res.status_code == 401
+
+    # 4. Logout with current token
+    logout_res = client.post("/api/v1/auth/logout", json={"refresh_token": new_raw_refresh})
+    assert logout_res.status_code == 200
+    assert logout_res.json()["revoked"] is True
+
+    # 5. Revoked token cannot be used again
+    post_logout_refresh = client.post("/api/v1/auth/refresh", json={"refresh_token": new_raw_refresh})
+    assert post_logout_refresh.status_code == 401

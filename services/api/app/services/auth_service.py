@@ -405,8 +405,10 @@ class AuthService:
         return True
 
     @staticmethod
-    def approve_doctor_license(db: Session, doctor_user_id: str, verifier_user_id: str, status_str: str, rejection_reason: Optional[str] = None) -> DoctorLicense:
-        doc_license = db.query(DoctorLicense).filter(DoctorLicense.user_id == doctor_user_id).first()
+    def approve_doctor_license(db: Session, doctor_user_id: Any, verifier_user_id: Any, status_str: str, rejection_reason: Optional[str] = None) -> DoctorLicense:
+        doc_uuid = uuid.UUID(str(doctor_user_id)) if not isinstance(doctor_user_id, uuid.UUID) else doctor_user_id
+        verifier_uuid = uuid.UUID(str(verifier_user_id)) if not isinstance(verifier_user_id, uuid.UUID) else verifier_user_id
+        doc_license = db.query(DoctorLicense).filter(DoctorLicense.user_id == doc_uuid).first()
         if not doc_license:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -420,7 +422,7 @@ class AuthService:
             )
 
         doc_license.verification_status = status_str
-        doc_license.verified_by = verifier_user_id
+        doc_license.verified_by = verifier_uuid
         doc_license.verified_at = datetime.now(timezone.utc)
         if status_str == 'rejected':
             doc_license.rejection_reason = rejection_reason
@@ -431,8 +433,10 @@ class AuthService:
         return doc_license
 
     @staticmethod
-    def update_user_status(db: Session, user_id: str, new_status: str, changed_by: str, reason_code: Optional[str] = None) -> User:
-        user = db.query(User).filter(User.user_id == user_id).first()
+    def update_user_status(db: Session, user_id: Any, new_status: str, changed_by: Any, reason_code: Optional[str] = None) -> User:
+        target_uuid = uuid.UUID(str(user_id)) if not isinstance(user_id, uuid.UUID) else user_id
+        changer_uuid = uuid.UUID(str(changed_by)) if not isinstance(changed_by, uuid.UUID) else changed_by
+        user = db.query(User).filter(User.user_id == target_uuid).first()
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -453,7 +457,7 @@ class AuthService:
             user_id=user.user_id,
             status=new_status,
             reason_code=reason_code or 'admin_action',
-            changed_by=changed_by,
+            changed_by=changer_uuid,
             changed_at=datetime.now(timezone.utc)
         )
         db.add(status_hist)
