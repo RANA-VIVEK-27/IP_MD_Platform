@@ -6,9 +6,15 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from pgvector.sqlalchemy import Vector
 
+from fastapi.testclient import TestClient
+
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+
+@pytest.fixture
+def client():
+    return TestClient(app)
 
 # Teach SQLite how to compile Postgres-specific types during tests
 @compiles(JSONB, "sqlite")
@@ -47,6 +53,14 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+import uuid as _uuid
+from sqlalchemy import event
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    dbapi_connection.create_function("gen_random_uuid", 0, lambda: str(_uuid.uuid4()))
+
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @pytest.fixture(scope="session", autouse=True)

@@ -6,19 +6,17 @@ from app.db.session import get_db
 from app.models.identity import User, DoctorLicense, Permission, AdminPermission
 from app.core.security import decode_access_token
 
-def get_token_from_header(authorization: Optional[str] = Header(None)) -> str:
-    if not authorization:
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+security = HTTPBearer(auto_error=False)
+
+def get_token_from_header(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> str:
+    if not credentials or not credentials.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="UNAUTHORIZED: Missing Authorization header"
         )
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="UNAUTHORIZED: Invalid token scheme"
-        )
-    return parts[1]
+    return credentials.credentials
 
 def get_current_user(
     db: Session = Depends(get_db),

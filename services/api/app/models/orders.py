@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy import Column, String, Integer, Boolean, Text, Numeric, TIMESTAMP, Enum, ForeignKey, Index, CheckConstraint, text as sql_text
 from sqlalchemy.dialects.postgresql import UUID
 from app.db.base import Base
@@ -5,7 +6,7 @@ from app.db.base import Base
 class Cart(Base):
     __tablename__ = 'carts'
 
-    cart_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    cart_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     patient_id = Column(UUID(as_uuid=True), ForeignKey('users.user_id'), nullable=False)
     status = Column(
         Enum('active', 'converted', 'abandoned', name='cart_status'),
@@ -18,7 +19,7 @@ class Cart(Base):
 class CartItem(Base):
     __tablename__ = 'cart_items'
 
-    cart_item_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    cart_item_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     cart_id = Column(UUID(as_uuid=True), ForeignKey('carts.cart_id'), nullable=False)
     medicine_id = Column(UUID(as_uuid=True), ForeignKey('medicine_catalog_items.medicine_id'), nullable=False)
     quantity = Column(Integer, nullable=False)
@@ -33,7 +34,7 @@ class CartItem(Base):
 class Order(Base):
     __tablename__ = 'orders'
 
-    order_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    order_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     patient_id = Column(UUID(as_uuid=True), ForeignKey('users.user_id'), nullable=False)
     cart_id = Column(UUID(as_uuid=True), ForeignKey('carts.cart_id'), unique=True, nullable=False)
     delivery_address_id = Column(UUID(as_uuid=True), ForeignKey('saved_addresses.address_id'), nullable=False)
@@ -58,7 +59,7 @@ class Order(Base):
 class OrderLineItem(Base):
     __tablename__ = 'order_line_items'
 
-    line_item_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    line_item_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     order_id = Column(UUID(as_uuid=True), ForeignKey('orders.order_id'), nullable=False)
     medicine_id = Column(UUID(as_uuid=True), ForeignKey('medicine_catalog_items.medicine_id'), nullable=False)
     prescription_id = Column(UUID(as_uuid=True), ForeignKey('prescriptions.prescription_id'), nullable=True)
@@ -79,7 +80,7 @@ class OrderLineItem(Base):
 class FulfillmentRecord(Base):
     __tablename__ = 'fulfillment_records'
 
-    fulfillment_record_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    fulfillment_record_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     line_item_id = Column(UUID(as_uuid=True), ForeignKey('order_line_items.line_item_id'), unique=True, nullable=False)
     source_type = Column(
         Enum('owned', 'partner', name='fulfillment_source_type'),
@@ -102,7 +103,7 @@ class FulfillmentRecord(Base):
 class RoutingDecision(Base):
     __tablename__ = 'routing_decisions'
 
-    routing_decision_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    routing_decision_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     line_item_id = Column(UUID(as_uuid=True), ForeignKey('order_line_items.line_item_id'), nullable=False)
     decision_basis = Column(String(50), nullable=False)
     source_type = Column(
@@ -118,7 +119,7 @@ class RoutingDecision(Base):
 class OrderDispute(Base):
     __tablename__ = 'order_disputes'
 
-    dispute_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    dispute_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     order_id = Column(UUID(as_uuid=True), ForeignKey('orders.order_id'), nullable=False)
     dispute_type = Column(String(50), nullable=False)
     flagged_at = Column(TIMESTAMP(timezone=True), nullable=False)

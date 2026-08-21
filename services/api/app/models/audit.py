@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy import Column, String, Integer, Text, TIMESTAMP, ForeignKey, Index, text as sql_text
 from sqlalchemy.dialects.postgresql import UUID
 from app.db.base import Base
@@ -5,7 +6,7 @@ from app.db.base import Base
 class AuditLogEntry(Base):
     __tablename__ = 'audit_log_entries'
 
-    audit_log_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    audit_log_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     actor_id = Column(UUID(as_uuid=True), ForeignKey('users.user_id'), nullable=True)
     actor_role = Column(String(30), nullable=False)
     action_type = Column(String(100), nullable=False)
@@ -23,7 +24,7 @@ class AuditLogEntry(Base):
 class ComplianceOverride(Base):
     __tablename__ = 'compliance_overrides'
 
-    override_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    override_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     order_id = Column(UUID(as_uuid=True), ForeignKey('orders.order_id'), nullable=False)
     super_admin_id = Column(UUID(as_uuid=True), ForeignKey('users.user_id'), nullable=False)
     justification = Column(Text, nullable=False)

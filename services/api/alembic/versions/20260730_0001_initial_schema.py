@@ -10,7 +10,12 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from pgvector.sqlalchemy import Vector
+try:
+    from pgvector.sqlalchemy import Vector
+    HAS_PGVECTOR = True
+except ImportError:
+    HAS_PGVECTOR = False
+    Vector = None
 
 # revision identifiers, used by Alembic.
 revision: str = '20260730_0001'
@@ -20,8 +25,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # 0. Enable pgvector extension
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+    # 0. Check if pgvector extension is available on this PostgreSQL installation
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT 1 FROM pg_available_extensions WHERE name = 'vector'"
+    ))
+    pgvector_available = result.fetchone() is not None
+
+    if pgvector_available:
+        op.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+    else:
+        print("WARNING: pgvector extension not available on this system. Skipping knowledge_embeddings table.")
 
     # 1. partner_pharmacies
     op.create_table(
@@ -464,16 +478,19 @@ def upgrade() -> None:
         sa.Column('created_at', sa.TIMESTAMP(timezone=True), nullable=False)
     )
 
-    # 38. knowledge_embeddings
-    op.create_table(
-        'knowledge_embeddings',
-        sa.Column('embedding_id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
-        sa.Column('source_reference', sa.String(length=255), nullable=False),
-        sa.Column('content_chunk', sa.Text(), nullable=False),
-        sa.Column('embedding', Vector(1536), nullable=False),
-        sa.Column('metadata', postgresql.JSONB(), nullable=True),
-        sa.Column('created_at', sa.TIMESTAMP(timezone=True), nullable=False)
-    )
+    # 38. knowledge_embeddings (requires pgvector extension)
+    if pgvector_available and HAS_PGVECTOR:
+        op.create_table(
+            'knowledge_embeddings',
+            sa.Column('embedding_id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
+            sa.Column('source_reference', sa.String(length=255), nullable=False),
+            sa.Column('content_chunk', sa.Text(), nullable=False),
+            sa.Column('embedding', Vector(1536), nullable=False),
+            sa.Column('metadata', postgresql.JSONB(), nullable=True),
+            sa.Column('created_at', sa.TIMESTAMP(timezone=True), nullable=False)
+        )
+    else:
+        print("SKIPPED: knowledge_embeddings table (pgvector not available)")
 
     # 39. audit_log_entries
     op.create_table(
@@ -518,7 +535,10 @@ def downgrade() -> None:
     op.drop_index('ix_audit_log_target_entity', table_name='audit_log_entries')
     op.drop_index('ix_audit_log_actor_action_ts', table_name='audit_log_entries')
     op.drop_table('audit_log_entries')
-    op.drop_table('knowledge_embeddings')
+    try:
+        op.drop_table('knowledge_embeddings')
+    except Exception:
+        pass  # Table may not exist if pgvector was not available
     op.drop_table('chat_messages')
     op.drop_table('chat_sessions')
     op.drop_table('consent_records')

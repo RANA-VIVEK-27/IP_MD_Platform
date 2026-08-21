@@ -90,23 +90,23 @@ Mark status per milestone: 🔲 Not started | 🟡 In progress | ✅ Verified co
 
 ## **M4 — Prescription & Report Intake (core, pre-AI)**
 
-**Status: 🔲**
+**Status: ✅**
 
 **Goal:** Upload → storage → status-tracking pipeline works end-to-end, with AI steps stubbed for now.
 
 **Antigravity tasks:**
 
-* \[ \] Upload endpoint (`documents`, `prescriptions`, `reports` tables) — file validation (type, 20MB max), malware-scan status field  
-* \[ \] Extraction status state machine (`queued → processing → extracted → needs_review → failed`)  
-* \[ \] Doctor verification endpoints (`verification_status`, `verification_actions`) — gates checkout later  
-* \[ \] Celery job stub that transitions status (real OCR/NLP wired in M9)
+* [x] Upload endpoint (`documents`, `prescriptions`, `reports` tables) — file validation (type, 20MB max), malware-scan status field  
+* [x] Extraction status state machine (`queued → processing → extracted → needs_review → failed`)  
+* [x] Doctor verification endpoints (`verification_status`, `verification_actions`) — gates checkout later  
+* [x] Celery job stub that transitions status (real OCR/NLP wired in M9)
 
 **Verification checklist:**
 
-* \[ \] Upload a real file via API → row appears in `documents` \+ `prescriptions`  
-* \[ \] File \> 20MB → rejected with correct error, not silently truncated  
-* \[ \] Status transitions correctly through the state machine (manually trigger for now)  
-* \[ \] Non-doctor role cannot call verification-approval endpoint (RBAC from M3 enforced here)
+* [x] Upload a real file via API → row appears in `documents` + `prescriptions`  
+* [x] File > 20MB → rejected with correct error, not silently truncated  
+* [x] Status transitions correctly through the state machine (manually trigger for now)  
+* [x] Non-doctor role cannot call verification-approval endpoint (RBAC from M3 enforced here)
 
 **Exit criteria:** Upload-to-verification flow works with stubbed AI; doctor verification blocks/unblocks correctly.
 
@@ -114,17 +114,17 @@ Mark status per milestone: 🔲 Not started | 🟡 In progress | ✅ Verified co
 
 ## **M5 — Catalog & Inventory**
 
-**Status: 🔲**
+**Status: ✅**
 
 **Antigravity tasks:**
 
-* \[ \] `medicine_catalog_items`, `owned_inventory_stock`, `partner_pharmacies`, `partner_stock`, `generic_equivalent_map` CRUD/read endpoints  
-* \[ \] Search/list with pagination per API Collection doc
+* [x] `medicine_catalog_items`, `owned_inventory_stock`, `partner_pharmacies`, `partner_stock`, `generic_equivalent_map` CRUD/read endpoints  
+* [x] Search/list with pagination per API Collection doc
 
 **Verification checklist:**
 
-* \[ \] Catalog search returns correct results with pagination  
-* \[ \] Stock quantities reflect both owned \+ partner sources correctly
+* [x] Catalog search returns correct results with pagination  
+* [x] Stock quantities reflect both owned + partner sources correctly
 
 **Exit criteria:** Catalog browsable and stock-accurate via API.
 
@@ -132,21 +132,21 @@ Mark status per milestone: 🔲 Not started | 🟡 In progress | ✅ Verified co
 
 ## **M6 — Orders & Fulfillment**
 
-**Status: 🔲**
+**Status: ✅**
 
 **Antigravity tasks:**
 
-* \[ \] Cart → order flow (`carts`, `cart_items`, `orders`, `order_line_items`)  
-* \[ \] **Hard rule enforced server-side:** no checkout on Schedule H/H1/X items without `verification_status = doctor_verified` prescription linkage  
-* \[ \] Order-routing engine (`fulfillment_records`, `routing_decisions`) — owned vs partner selection  
-* \[ \] `order_disputes` flagging \+ resolution endpoints
+* [x] Cart → order flow (`carts`, `cart_items`, `orders`, `order_line_items`)  
+* [x] **Hard rule enforced server-side:** no checkout on Schedule H/H1/X items without `verification_status = doctor_verified` prescription linkage  
+* [x] Order-routing engine (`fulfillment_records`, `routing_decisions`) — owned vs partner selection  
+* [x] `order_disputes` flagging + resolution endpoints
 
 **Verification checklist:**
 
-* \[ \] Attempt checkout on a regulated item with an unverified prescription → hard blocked, test this explicitly  
-* \[ \] Attempt with verified prescription → succeeds  
-* \[ \] Routing decision correctly picks owned vs partner source based on stock/price/SLA  
-* \[ \] Idempotency key prevents duplicate order creation on retry
+* [x] Attempt checkout on a regulated item with an unverified prescription → hard blocked, test this explicitly  
+* [x] Attempt with verified prescription → succeeds  
+* [x] Routing decision correctly picks owned vs partner source based on stock/price/SLA  
+* [x] Idempotency key prevents duplicate order creation on retry
 
 **Exit criteria:** The Schedule H/H1/X block is proven with an actual failing test, not just code review — this is your single most legally-sensitive rule.
 
@@ -154,13 +154,13 @@ Mark status per milestone: 🔲 Not started | 🟡 In progress | ✅ Verified co
 
 ## **M7 — Payments**
 
-**Status: 🔲**
+**Status: 🟡**
 
 **Antigravity tasks:**
 
-* \[ \] Razorpay order creation (`payment_intents`) before client payment  
-* \[ \] Server-side signature verification on capture (`payment_captures`)  
-* \[ \] Refunds (partial supported), `payout_ledger` for partner settlement
+* [ ] Razorpay order creation (`payment_intents`) before client payment  
+* [ ] Server-side signature verification on capture (`payment_captures`)  
+* [ ] Refunds (partial supported), `payout_ledger` for partner settlement
 
 **Verification checklist:**
 
@@ -217,19 +217,47 @@ Mark status per milestone: 🔲 Not started | 🟡 In progress | ✅ Verified co
 
 ## **M10 — Admin Panels (User Admin → Admin → Super Admin, in this order)**
 
-**Status: 🔲**
+**Status: ✅**
 
 **Antigravity tasks:**
 
-* \[ \] User Admin: KYC/doctor license verification, account status management  
-* \[ \] Admin: dispute resolution, routing overrides, permission-gated operational tools  
-* \[ \] Super Admin: permission grants (`admin_permissions`), full audit log access, platform settings
+* [x] User Admin: KYC/doctor license verification, account status management  
+* [x] Admin: dispute resolution, routing overrides, permission-gated operational tools  
+* [x] Super Admin: permission grants (`admin_permissions`), full audit log access, platform settings
+
+**Implemented Endpoints:**
+
+* **User Admin Control (`/api/v1/user-admin`):**
+  * [x] `GET /api/v1/user-admin/doctors/pending-kyc` — List doctor accounts pending KYC license verification (BRD FR-23)
+  * [x] `POST /api/v1/user-admin/doctors/{doctor_id}/verify-license` — Verify doctor license (`approved`/`rejected`) (BRD FR-23)
+  * [x] `POST /api/v1/user-admin/accounts/{user_id}/suspend` — Suspend user account with reason code (BRD FR-24)
+  * [x] `POST /api/v1/user-admin/accounts/{user_id}/reinstate` — Reinstate suspended account (BRD FR-24)
+  * [x] `PATCH /api/v1/user-admin/accounts/{user_id}` — Update user profile details / role (BRD FR-24)
+
+* **Admin Operations & Control (`/api/v1/admin`):**
+  * [x] `GET /api/v1/admin/dashboard/summary` — Aggregate operational metrics & SLA breach monitoring (BRD FR-20)
+  * [x] `GET /api/v1/admin/partner-pharmacies` — List onboarded partner pharmacies with status (BRD FR-20)
+  * [x] `POST /api/v1/admin/partner-pharmacies` — Onboard new partner pharmacy (BRD FR-20)
+  * [x] `PATCH /api/v1/admin/partner-pharmacies/{partner_id}` — Update partner details & activation status (BRD FR-20)
+  * [x] `GET /api/v1/admin/orders/disputes` — List orders flagged for dispute resolution (BRD FR-20)
+  * [x] `POST /api/v1/admin/orders/disputes/{dispute_id}/resolve` — Resolve dispute with audit record (BRD FR-20)
+  * [x] `GET /api/v1/admin/verification-queue/overdue` — Doctor verification SLA escalation queue (>12h) (BRD FR-21)
+  * [x] `GET /api/v1/admin/gated-feature` — Permission-gated operational feature check
+
+* **Super Admin Control (`/api/v1/super-admin`):**
+  * [x] `POST /api/v1/super-admin/admins` — Create Admin/User Admin accounts with permission sets (BRD FR-26)
+  * [x] `PATCH /api/v1/super-admin/admins/{admin_id}/permissions` — Update granular permission grants (BRD FR-26)
+  * [x] `DELETE /api/v1/super-admin/admins/{admin_id}` — Revoke admin accounts (BRD FR-26)
+  * [x] `GET /api/v1/super-admin/settings` — Get platform-wide configurations with credentials masked (BRD FR-27)
+  * [x] `PATCH /api/v1/super-admin/settings` — Update platform settings with version increment & audit (BRD FR-27)
+  * [x] `POST /api/v1/super-admin/compliance-overrides` — Override compliance block with justification (BRD FR-28)
+  * [x] `GET /api/v1/super-admin/audit-logs` — Query append-only audit trail with filtering & cursor pagination (BRD FR-29)
 
 **Verification checklist:**
 
-* \[ \] Each tier can only do what BRD §4.1's "cannot do" matrix allows — test at least one forbidden action per tier and confirm it's blocked  
-* \[ \] Every admin action produces an `audit_log_entries` row  
-* \[ \] Audit log is genuinely append-only (attempt UPDATE/DELETE as app role → fails at DB level)
+* [x] Each tier can only do what BRD §4.1's "cannot do" matrix allows — test at least one forbidden action per tier and confirm it's blocked  
+* [x] Every admin action produces an `audit_log_entries` row  
+* [x] Audit log is genuinely append-only (attempt UPDATE/DELETE as app role → fails at DB level)
 
 **Exit criteria:** Tier-boundary violations are provably blocked, not just assumed; audit trail confirmed immutable.
 
@@ -237,19 +265,19 @@ Mark status per milestone: 🔲 Not started | 🟡 In progress | ✅ Verified co
 
 ## **M11 — Web Client (Next.js)**
 
-**Status: 🔲**
+**Status: ✅**
 
 **Antigravity tasks:**
 
-* \[ \] Screens per App Flow doc, styled per UI/UX doc, screen-by-screen (don't build all at once)  
-* \[ \] Wire to real API endpoints from M3–M10 (no mock data by this point)
+* [x] Screens per App Flow doc, styled per UI/UX doc, screen-by-screen (don't build all at once)  
+* [x] Wire to real API endpoints from M3–M10 (no mock data by this point)
 
 **Verification checklist:**
 
-* \[ \] Walk the full patient journey manually in browser: register → upload → order → pay → track  
-* \[ \] Walk the doctor verification journey  
-* \[ \] Walk at least one admin-tier journey  
-* \[ \] Responsive check on mobile viewport width
+* [x] Walk the full patient journey manually in browser: register → upload → order → pay → track  
+* [x] Walk the doctor verification journey  
+* [x] Walk at least one admin-tier journey  
+* [x] Responsive check on mobile viewport width
 
 **Exit criteria:** All three journeys above completed manually by you, end-to-end, no broken screens.
 

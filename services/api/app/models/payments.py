@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy import Column, String, BigInteger, TIMESTAMP, Enum, ForeignKey, Index, text as sql_text
 from sqlalchemy.dialects.postgresql import UUID
 from app.db.base import Base
@@ -5,7 +6,7 @@ from app.db.base import Base
 class PaymentIntent(Base):
     __tablename__ = 'payment_intents'
 
-    payment_intent_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    payment_intent_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     order_id = Column(UUID(as_uuid=True), ForeignKey('orders.order_id'), nullable=False)
     razorpay_order_id = Column(String(100), nullable=False)
     amount_paise = Column(BigInteger, nullable=False)
@@ -25,7 +26,7 @@ class PaymentIntent(Base):
 class PaymentCapture(Base):
     __tablename__ = 'payment_captures'
 
-    capture_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    capture_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     payment_intent_id = Column(UUID(as_uuid=True), ForeignKey('payment_intents.payment_intent_id'), nullable=False)
     razorpay_payment_id = Column(String(100), nullable=False)
     razorpay_signature = Column(String(255), nullable=False)
@@ -44,7 +45,7 @@ class PaymentCapture(Base):
 class Refund(Base):
     __tablename__ = 'refunds'
 
-    refund_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    refund_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     payment_intent_id = Column(UUID(as_uuid=True), ForeignKey('payment_intents.payment_intent_id'), nullable=False)
     amount_paise = Column(BigInteger, nullable=False)
     reason = Column(
@@ -63,7 +64,7 @@ class Refund(Base):
 class PayoutLedger(Base):
     __tablename__ = 'payout_ledger'
 
-    payout_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    payout_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()"))
     partner_id = Column(UUID(as_uuid=True), ForeignKey('partner_pharmacies.partner_id'), nullable=False)
     order_id = Column(UUID(as_uuid=True), ForeignKey('orders.order_id'), nullable=False)
     amount_paise = Column(BigInteger, nullable=False)
