@@ -18,6 +18,7 @@ import {
   ReportDetail, ReportListResponse,
   DocumentUploadResponse, DocumentItem, DocumentDownloadResponse,
   DocumentListResponse, DocumentStatusPoll, DocumentDeleteResponse,
+  ConsentResponse, ChatSessionResponse, ChatMessageItem, ChatTurnResponse, ChatHistoryResponse,
 } from './types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -292,4 +293,26 @@ export const ApiClient = {
     apiRequest<DocumentDownloadResponse>(`/documents/${id}/download`),
   deleteDocument: (id: string) =>
     apiRequest<DocumentDeleteResponse>(`/documents/${id}`, { method: 'DELETE' }),
+
+  // AI & Health Chat (RAG - M9)
+  recordAIConsent: (consentGiven: boolean = true, consentType: string = 'chat_logging') =>
+    apiRequest<ConsentResponse>('/ai/consent', {
+      method: 'POST',
+      body: JSON.stringify({ consent_given: consentGiven, consent_type: consentType }),
+    }),
+  createChatSession: (consentGiven: boolean = true, contextPrescriptionId?: string) =>
+    apiRequest<ChatSessionResponse>('/ai/chat/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ consent_given: consentGiven, context_prescription_id: contextPrescriptionId || null }),
+    }),
+  sendChatMessage: (sessionId: string, text: string) =>
+    apiRequest<ChatTurnResponse>(`/ai/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  getChatHistory: (sessionId: string) =>
+    apiRequest<ChatHistoryResponse>(`/ai/chat/sessions/${sessionId}/messages`),
 };
+
+export const apiClient = ApiClient;
+

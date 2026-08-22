@@ -488,7 +488,7 @@ export default function LandingPage() {
             </div>
           </RevealDiv>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 'var(--sp-6)', maxWidth: '1000px', margin: '0 auto' }}>
+          <div className="how-it-works-grid">
             {[
               { num: '01', title: 'Upload Prescription', desc: 'Photograph or scan your prescription' },
               { num: '02', title: 'AI Extraction', desc: 'OCR extracts medicine data automatically' },
@@ -498,12 +498,36 @@ export default function LandingPage() {
               { num: '06', title: 'Track Fulfillment', desc: 'Real-time order tracking to delivery' },
             ].map((step, i) => (
               <RevealDiv key={i} delay={(i + 1) as any}>
-                <div style={{ textAlign: 'center', position: 'relative' }}>
-                  <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto var(--sp-3)', fontSize: 'var(--text-sm)', fontWeight: 700 }}>
+                <div style={{
+                  textAlign: 'center',
+                  padding: 'var(--sp-5) var(--sp-3)',
+                  background: 'var(--bg-surface)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--border-light)',
+                  boxShadow: 'var(--shadow-sm)',
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                }}>
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '50%',
+                    background: 'var(--primary)',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 'var(--sp-3)',
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 700,
+                    boxShadow: '0 4px 10px rgba(8,127,123,0.25)'
+                  }}>
                     {step.num}
                   </div>
-                  <h4 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--navy)', marginBottom: '4px' }}>{step.title}</h4>
-                  <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>{step.desc}</p>
+                  <h4 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--navy)', marginBottom: '6px' }}>{step.title}</h4>
+                  <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{step.desc}</p>
                 </div>
               </RevealDiv>
             ))}

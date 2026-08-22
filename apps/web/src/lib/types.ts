@@ -564,3 +564,43 @@ export interface DocumentDeleteResponse {
   deleted: boolean;
   message: string;
 }
+
+// M9: AI & RAG Chat Assistant Types
+
+export interface ConsentResponse {
+  consent_id: string;
+  user_id: string;
+  consent_type: string;
+  consent_given: boolean;
+  timestamp: string;
+}
+
+export interface ChatSessionResponse {
+  session_id: string;
+  patient_id: string;
+  context_prescription_id?: string | null;
+  created_at: string;
+}
+
+export interface ChatMessageItem {
+  message_id: string;
+  session_id: string;
+  sender: 'user' | 'assistant' | 'system';
+  text: string;
+  is_ai_generated: boolean;
+  guardrail_triggered: boolean;
+  created_at: string;
+}
+
+export interface ChatTurnResponse {
+  user_message: ChatMessageItem;
+  assistant_message: ChatMessageItem;
+  rag_sources_used: number;
+}
+
+export interface ChatHistoryResponse {
+  session_id: string;
+  messages: ChatMessageItem[];
+  total: number;
+}
+
