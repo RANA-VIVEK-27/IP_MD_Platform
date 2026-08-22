@@ -12,6 +12,7 @@ from app.api.v1.catalog import router as catalog_router
 from app.api.v1.orders import router as orders_router
 from app.api.v1.payments import router as payments_router
 from app.api.v1.notifications import router as notifications_router
+from app.api.v1.documents import router as documents_router
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(auth_router)
@@ -27,3 +28,4 @@ api_v1_router.include_router(catalog_router)
 api_v1_router.include_router(orders_router)
 api_v1_router.include_router(payments_router)
 api_v1_router.include_router(notifications_router)
+api_v1_router.include_router(documents_router)

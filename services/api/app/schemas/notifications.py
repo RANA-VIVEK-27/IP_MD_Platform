@@ -13,8 +13,12 @@ class NotificationResponse(BaseModel):
     related_entity_type: Optional[str] = Field(None, description="order | prescription | report")
     related_entity_id: Optional[uuid.UUID] = None
     message: str
-    read: bool
+    read: bool = Field(..., alias="read")
+    is_read: bool = Field(False, description="Alias for read — used by frontend")
     created_at: datetime
+
+    def model_post_init(self, __context) -> None:
+        self.is_read = self.read
 
 
 class NotificationListResponse(BaseModel):

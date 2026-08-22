@@ -1,83 +1,86 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { ApiClient, ApiError } from '../../../lib/api';
 import { PageHeader } from '../../../components/PageHeader';
 import { Avatar } from '../../../components/Avatar';
 import { StatusBadge } from '../../../components/Badges';
 import { Modal } from '../../../components/Modal';
 import { useToast } from '../../../components/Toast';
-import { IconSearch } from '../../../components/Icons';
+import { IconSearch, IconAlertTriangle } from '../../../components/Icons';
+import { AccountListItem } from '../../../lib/types';
 
 export default function UserAdminAccountsPage() {
   const { addToast } = useToast();
+  const [accounts, setAccounts] = useState<AccountListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [accounts, setAccounts] = useState([
-    {
-      id: 'usr-101',
-      name: 'Rahul Sharma',
-      email: 'rahul.sharma@example.com',
-      role: 'patient',
-      status: 'active',
-      joinedAt: 'Jul 12, 2026',
-    },
-    {
-      id: 'usr-102',
-      name: 'Dr. Ananya Sen',
-      email: 'dr.ananya@ipmd.in',
-      role: 'doctor',
-      status: 'active',
-      joinedAt: 'Jul 10, 2026',
-    },
-    {
-      id: 'usr-103',
-      name: 'Rohan Gupta',
-      email: 'rohan.g@example.com',
-      role: 'patient',
-      status: 'suspended',
-      joinedAt: 'Aug 02, 2026',
-    },
-    {
-      id: 'usr-104',
-      name: 'Vikram Joshi',
-      email: 'vikram.j@pharmacy.in',
-      role: 'pharmacy_staff_owned',
-      status: 'active',
-      joinedAt: 'Jul 15, 2026',
-    },
-  ]);
-
   const [statusModalOpen, setStatusModalOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<AccountListItem | null>(null);
   const [actionType, setActionType] = useState<'suspend' | 'reinstate'>('suspend');
   const [reasonCode, setReasonCode] = useState('');
+  const [acting, setActing] = useState(false);
 
-  const handleOpenStatusModal = (user: any, type: 'suspend' | 'reinstate') => {
+  const loadAccounts = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params: Record<string, string | number> = { limit: 200 };
+      if (search) params.search = search;
+      const res = await ApiClient.listAccounts(params);
+      setAccounts(res.data || []);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to load accounts';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [search]);
+
+  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+
+  const handleOpenStatusModal = (user: AccountListItem, type: 'suspend' | 'reinstate') => {
     setSelectedUser(user);
     setActionType(type);
     setReasonCode('');
     setStatusModalOpen(true);
   };
 
-  const handleConfirmStatus = () => {
-    setAccounts((prev) =>
-      prev.map((acc) =>
-        acc.id === selectedUser.id
-          ? { ...acc, status: actionType === 'suspend' ? 'suspended' : 'active' }
-          : acc
-      )
-    );
-    setStatusModalOpen(false);
-    addToast(
-      actionType === 'suspend' ? 'warning' : 'success',
-      actionType === 'suspend' ? 'Account Suspended' : 'Account Reinstated',
-      `${selectedUser.name} has been ${actionType === 'suspend' ? 'suspended' : 'reinstated'}.`
-    );
+  const handleConfirmStatus = async () => {
+    if (!selectedUser || !reasonCode.trim()) return;
+    setActing(true);
+    try {
+      if (actionType === 'suspend') {
+        await ApiClient.suspendAccount(selectedUser.user_id, reasonCode);
+      } else {
+        await ApiClient.reinstateAccount(selectedUser.user_id, reasonCode);
+      }
+      setAccounts(prev =>
+        prev.map(acc =>
+          acc.user_id === selectedUser.user_id
+            ? { ...acc, status: actionType === 'suspend' ? 'suspended' : 'active' }
+            : acc
+        )
+      );
+      setStatusModalOpen(false);
+      addToast(
+        actionType === 'suspend' ? 'warning' : 'success',
+        actionType === 'suspend' ? 'Account Suspended' : 'Account Reinstated',
+        `${selectedUser.full_name} has been ${actionType === 'suspend' ? 'suspended' : 'reinstated'}.`
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Action failed';
+      addToast('error', 'Action Failed', msg);
+    } finally {
+      setActing(false);
+    }
   };
 
   const filtered = accounts.filter(
     (a) =>
-      a.name.toLowerCase().includes(search.toLowerCase()) ||
-      a.email.toLowerCase().includes(search.toLowerCase()) ||
+      a.full_name.toLowerCase().includes(search.toLowerCase()) ||
+      (a.email || '').toLowerCase().includes(search.toLowerCase()) ||
       a.role.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -126,71 +129,83 @@ export default function UserAdminAccountsPage() {
         />
       </div>
 
-      <div className="table-wrapper">
-        <table className="table" role="table" aria-label="User accounts">
-          <thead>
-            <tr>
-              <th scope="col">User ID</th>
-              <th scope="col">Full Name</th>
-              <th scope="col">Email Address</th>
-              <th scope="col">Role</th>
-              <th scope="col">Status</th>
-              <th scope="col" style={{ textAlign: 'right' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((acc) => (
-              <tr key={acc.id}>
-                <td>
-                  <span style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{acc.id}</span>
-                </td>
-                <td>
-                  <div className="flex items-center gap-3">
-                    <Avatar name={acc.name} size="sm" />
-                    <span style={{ fontWeight: 600, fontSize: 'var(--text-base)' }}>{acc.name}</span>
-                  </div>
-                </td>
-                <td>
-                  <span className="text-caption">{acc.email}</span>
-                </td>
-                <td>
-                  <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
-                    {acc.role.replace(/_/g, ' ')}
-                  </span>
-                </td>
-                <td><StatusBadge status={acc.status} /></td>
-                <td style={{ textAlign: 'right' }}>
-                  {acc.status === 'active' ? (
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={() => handleOpenStatusModal(acc, 'suspend')}
-                    >
-                      Suspend
-                    </button>
-                  ) : (
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => handleOpenStatusModal(acc, 'reinstate')}
-                    >
-                      Reinstate
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
+      {loading ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+          {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: '56px', borderRadius: 'var(--radius-lg)' }} />)}
+        </div>
+      ) : error ? (
+        <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center' }}>
+          <IconAlertTriangle size={24} style={{ color: 'var(--danger)', margin: '0 auto var(--sp-3)' }} />
+          <p style={{ color: 'var(--danger)' }}>{error}</p>
+          <button className="btn btn-secondary btn-sm" style={{ marginTop: 'var(--sp-3)' }} onClick={loadAccounts}>Retry</button>
+        </div>
+      ) : (
+        <div className="table-wrapper">
+          <table className="table" role="table" aria-label="User accounts">
+            <thead>
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-10)' }}>
-                  <div className="flex flex-col items-center gap-3" style={{ color: 'var(--text-secondary)' }}>
-                    <IconSearch size={32} style={{ opacity: 0.4 }} />
-                    <span style={{ fontSize: 'var(--text-base)' }}>No accounts match your search</span>
-                  </div>
-                </td>
+                <th scope="col">User ID</th>
+                <th scope="col">Full Name</th>
+                <th scope="col">Email Address</th>
+                <th scope="col">Role</th>
+                <th scope="col">Status</th>
+                <th scope="col" style={{ textAlign: 'right' }}>Actions</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filtered.map((acc) => (
+                <tr key={acc.user_id}>
+                  <td>
+                    <span style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{acc.user_id.slice(0, 8)}</span>
+                  </td>
+                  <td>
+                    <div className="flex items-center gap-3">
+                      <Avatar name={acc.full_name} size="sm" />
+                      <span style={{ fontWeight: 600, fontSize: 'var(--text-base)' }}>{acc.full_name}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="text-caption">{acc.email}</span>
+                  </td>
+                  <td>
+                    <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
+                      {acc.role.replace(/_/g, ' ')}
+                    </span>
+                  </td>
+                  <td><StatusBadge status={acc.status} /></td>
+                  <td style={{ textAlign: 'right' }}>
+                    {acc.status === 'active' ? (
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={() => handleOpenStatusModal(acc, 'suspend')}
+                      >
+                        Suspend
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={() => handleOpenStatusModal(acc, 'reinstate')}
+                      >
+                        Reinstate
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-10)' }}>
+                    <div className="flex flex-col items-center gap-3" style={{ color: 'var(--text-secondary)' }}>
+                      <IconSearch size={32} style={{ opacity: 0.4 }} />
+                      <span style={{ fontSize: 'var(--text-base)' }}>No accounts match your search</span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Status Modal */}
       <Modal
@@ -200,9 +215,9 @@ export default function UserAdminAccountsPage() {
       >
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-3" style={{ padding: 'var(--sp-3)', background: 'var(--bg-page)', borderRadius: 'var(--radius-md)' }}>
-            <Avatar name={selectedUser?.name || ''} size="lg" />
+            <Avatar name={selectedUser?.full_name || ''} size="lg" />
             <div>
-              <div style={{ fontWeight: 600 }}>{selectedUser?.name}</div>
+              <div style={{ fontWeight: 600 }}>{selectedUser?.full_name}</div>
               <div className="text-caption">{selectedUser?.email}</div>
             </div>
           </div>
@@ -231,10 +246,10 @@ export default function UserAdminAccountsPage() {
             </button>
             <button
               className={`btn ${actionType === 'suspend' ? 'btn-danger' : 'btn-primary'}`}
-              disabled={!reasonCode.trim()}
+              disabled={!reasonCode.trim() || acting}
               onClick={handleConfirmStatus}
             >
-              {actionType === 'suspend' ? 'Confirm Suspension' : 'Confirm Reinstatement'}
+              {acting ? 'Processing...' : actionType === 'suspend' ? 'Confirm Suspension' : 'Confirm Reinstatement'}
             </button>
           </div>
         </div>

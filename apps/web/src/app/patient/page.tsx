@@ -17,7 +17,7 @@ function getStepIndex(status: string): number {
 }
 
 function formatAmount(paise: number): string {
-  return `₹${(paise / 1).toFixed(2)}`;
+  return `₹${(paise / 100).toFixed(2)}`;
 }
 
 function timeAgo(dateStr: string): string {

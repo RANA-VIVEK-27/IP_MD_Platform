@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { ApiClient, ApiError } from '../../lib/api';
 import { PageHeader } from '../../components/PageHeader';
 import { Avatar } from '../../components/Avatar';
-import { StatusBadge } from '../../components/Badges';
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { IconCheckCircle, IconXCircle, IconShieldCheck, IconAlertTriangle } from '../../components/Icons';
@@ -14,6 +13,7 @@ export default function UserAdminKYCPage() {
   const { addToast } = useToast();
   const [pendingDoctors, setPendingDoctors] = useState<DoctorKYCItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [verifyModalOpen, setVerifyModalOpen] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState<DoctorKYCItem | null>(null);
   const [decision, setDecision] = useState<'approve' | 'reject'>('approve');
@@ -27,7 +27,10 @@ export default function UserAdminKYCPage() {
     try {
       const res = await ApiClient.listPendingKYC();
       setPendingDoctors(res.data || []);
-    } catch {} finally { setLoading(false); }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to load pending verifications';
+      setError(msg);
+    } finally { setLoading(false); }
   }
 
   const handleOpenVerify = (doc: DoctorKYCItem, dec: 'approve' | 'reject') => {
@@ -66,6 +69,12 @@ export default function UserAdminKYCPage() {
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
           {[1, 2].map(i => <div key={i} className="skeleton" style={{ height: '56px', borderRadius: 'var(--radius-lg)' }} />)}
+        </div>
+      ) : error ? (
+        <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center' }}>
+          <IconAlertTriangle size={24} style={{ color: 'var(--danger)', margin: '0 auto var(--sp-3)' }} />
+          <p style={{ color: 'var(--danger)' }}>{error}</p>
+          <button className="btn btn-secondary btn-sm" style={{ marginTop: 'var(--sp-3)' }} onClick={loadPending}>Retry</button>
         </div>
       ) : (
         <div className="table-wrapper">

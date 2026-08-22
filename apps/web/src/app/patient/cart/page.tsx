@@ -23,16 +23,17 @@ export default function CartPage() {
 
   async function loadCart() {
     setLoading(true);
+    setError('');
     try {
-      // Check if there's an active cart in localStorage
       const cartId = localStorage.getItem('ipmd_cart_id');
       if (cartId) {
         const cartData = await ApiClient.getCart(cartId);
         setCart(cartData);
         return;
       }
-    } catch {
-      // Cart may not exist yet
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to load cart';
+      setError(msg);
     }
     setLoading(false);
   }
@@ -44,8 +45,12 @@ export default function CartPage() {
     if (!cart || hasBlocked) return;
     setCheckoutLoading(true);
     try {
-      // Get default address or use placeholder
-      const addressId = localStorage.getItem('ipmd_default_address_id') || '00000000-0000-0000-0000-000000000001';
+      const addressId = localStorage.getItem('ipmd_default_address_id');
+      if (!addressId) {
+        addToast('error', 'No Delivery Address', 'Please set a delivery address before checkout.');
+        setCheckoutLoading(false);
+        return;
+      }
       const orderRes = await ApiClient.createOrder(cart.cart_id, addressId);
       localStorage.removeItem('ipmd_cart_id');
       addToast('success', 'Order Placed', `Order #${orderRes.order_id.slice(0, 8)} created. Payment required.`);

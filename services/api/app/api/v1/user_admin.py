@@ -16,6 +16,8 @@ from app.schemas.admin import (
     AccountReinstateRequest,
     AccountUpdateRequest,
     AccountActionResponse,
+    AccountListItem,
+    AccountListResponse,
 )
 
 router = APIRouter(prefix="/user-admin", tags=["User Admin Control"])
@@ -31,6 +33,43 @@ def list_pending_kyc(
     """
     pending = UserAdminService.list_pending_kyc_doctors(db=db)
     return DoctorKYCListResponse(data=[DoctorKYCItem(**item) for item in pending])
+
+
+@router.get("/accounts", response_model=AccountListResponse)
+def list_accounts(
+    role: Optional[str] = Query(None, description="Filter by role"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
+    search: Optional[str] = Query(None, description="Search by name or email"),
+    limit: int = Query(50, ge=1, le=200),
+    cursor: Optional[str] = Query(None, description="Pagination cursor (user_id)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("user_admin", "super_admin")),
+):
+    """
+    Lists all user accounts with optional filtering (BRD FR-24 / API §3.9).
+    """
+    cursor_uuid = uuid.UUID(cursor) if cursor else None
+    users, next_cursor = UserAdminService.list_accounts(
+        db=db,
+        role_filter=role,
+        status_filter=status_filter,
+        search=search,
+        limit=limit,
+        cursor=cursor_uuid,
+    )
+    items = [
+        AccountListItem(
+            user_id=u.user_id,
+            full_name=u.full_name,
+            email=u.email,
+            phone=u.phone,
+            role=u.role,
+            status=u.status,
+            created_at=u.created_at,
+        )
+        for u in users
+    ]
+    return AccountListResponse(data=items, total=len(items), next_cursor=next_cursor)
 
 
 @router.post("/doctors/{doctor_id}/verify-license", response_model=DoctorKYCVerifyResponse)

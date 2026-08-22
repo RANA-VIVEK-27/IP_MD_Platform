@@ -265,6 +265,7 @@ export interface NotificationItem {
   message: string;
   related_entity_type?: string | null;
   related_entity_id?: string | null;
+  read: boolean;
   is_read: boolean;
   created_at: string;
 }
@@ -334,16 +335,32 @@ export interface DoctorKYCListResponse {
 }
 
 export interface DoctorKYCVerifyResponse {
-  success: boolean;
-  message: string;
-  verification_status: string;
+  user_id: string;
+  status: string;
+  audit_log_id: string;
 }
 
 export interface AccountActionResponse {
-  success: boolean;
-  message: string;
   user_id: string;
+  status?: string | null;
+  updated_fields?: string[] | null;
+  audit_log_id: string;
+}
+
+export interface AccountListItem {
+  user_id: string;
+  full_name: string;
+  email?: string | null;
+  phone?: string | null;
+  role: string;
   status: string;
+  created_at: string;
+}
+
+export interface AccountListResponse {
+  data: AccountListItem[];
+  total: number;
+  next_cursor?: string | null;
 }
 
 export interface PlatformSettingsResponse {
@@ -383,6 +400,16 @@ export interface AdminRevokeResponse {
   admin_id: string;
 }
 
+export interface AdminListItem {
+  user_id: string;
+  full_name: string;
+  email?: string;
+  role: string;
+  status: string;
+}
+
+export interface AdminListResponse extends PaginatedResponse<AdminListItem> {}
+
 export interface AuditLogEntry {
   audit_log_id: string;
   actor_id?: string;
@@ -409,10 +436,9 @@ export interface OverdueVerificationResponse {
 }
 
 export interface ComplianceOverrideResponse {
-  success: boolean;
   override_id: string;
   order_id: string;
-  message: string;
+  audit_log_id: string;
 }
 
 export interface SavedAddress {
@@ -439,6 +465,20 @@ export interface ReportDetail {
   created_at: string;
 }
 
+export interface ReportSummary {
+  report_id: string;
+  patient_id: string;
+  document_id: string;
+  report_type?: string | null;
+  extraction_status: string;
+  created_at: string;
+}
+
+export interface ReportListResponse {
+  data: ReportSummary[];
+  next_cursor?: string | null;
+}
+
 export interface ReportValue {
   value_id: string;
   test_name: string;
@@ -453,13 +493,74 @@ export interface NotificationPreference {
   push_enabled: boolean;
   email_enabled: boolean;
   sms_enabled: boolean;
+  updated_at: string;
 }
 
 export interface DeliveryLog {
-  log_id: string;
+  delivery_log_id: string;
   notification_id: string;
   channel: string;
   status: string;
-  sent_at?: string | null;
-  delivered_at?: string | null;
+  error_detail?: string | null;
+  attempted_at: string;
+}
+
+// M12: Document Management Types
+
+export type DocumentStatus =
+  | 'upload_pending' | 'uploaded' | 'quarantined' | 'scanning'
+  | 'clean' | 'processing' | 'ready'
+  | 'upload_failed' | 'scan_failed' | 'infected' | 'processing_failed'
+  | 'deleted';
+
+export type ScanStatus = 'pending' | 'clean' | 'infected' | 'scan_failed';
+export type ProcessingStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+export interface DocumentItem {
+  document_id: string;
+  uploaded_by: string;
+  original_filename: string;
+  mime_type: string;
+  file_size_bytes: number;
+  checksum_sha256?: string | null;
+  file_type: string;
+  doc_status: DocumentStatus;
+  scan_status: ScanStatus;
+  processing_status: ProcessingStatus;
+  storage_provider?: string | null;
+  uploaded_at: string;
+  updated_at?: string | null;
+}
+
+export interface DocumentUploadResponse {
+  document_id: string;
+  filename: string;
+  mime_type: string;
+  file_size: number;
+  doc_status: string;
+  scan_status: string;
+  checksum_sha256?: string | null;
+  message: string;
+}
+
+export interface DocumentDownloadResponse {
+  document_id: string;
+  download_url: string;
+  expires_in: number;
+  filename: string;
+}
+
+export interface DocumentListResponse extends PaginatedResponse<DocumentItem> {}
+
+export interface DocumentStatusPoll {
+  document_id: string;
+  doc_status: DocumentStatus;
+  scan_status: ScanStatus;
+  processing_status: ProcessingStatus;
+}
+
+export interface DocumentDeleteResponse {
+  document_id: string;
+  deleted: boolean;
+  message: string;
 }

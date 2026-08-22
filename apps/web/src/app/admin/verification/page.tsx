@@ -12,20 +12,24 @@ export default function AdminOverdueVerificationPage() {
   const { addToast } = useToast();
   const [overdueItems, setOverdueItems] = useState<OverdueVerificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => { loadOverdue(); }, []);
 
   async function loadOverdue() {
     setLoading(true);
+    setError('');
     try {
       const res = await ApiClient.listOverdueVerifications();
       setOverdueItems(res.data || []);
-    } catch {} finally { setLoading(false); }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load overdue verifications');
+    } finally { setLoading(false); }
   }
 
   const handleReassign = (prescriptionId: string) => {
     setOverdueItems((prev) => prev.filter((item) => item.prescription_id !== prescriptionId));
-    addToast('success', 'Reassigned', `Prescription ${prescriptionId.slice(0, 8)} reassigned to emergency on-call doctor pool.`);
+    addToast('success', 'Reassigned', `Prescription ${prescriptionId.slice(0, 8)} has been flagged for reassignment to the on-call doctor pool.`);
   };
 
   return (
@@ -58,6 +62,11 @@ export default function AdminOverdueVerificationPage() {
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
           {[1, 2].map(i => <div key={i} className="skeleton" style={{ height: '56px', borderRadius: 'var(--radius-lg)' }} />)}
+        </div>
+      ) : error ? (
+        <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center' }}>
+          <IconAlertTriangle size={24} style={{ color: 'var(--danger)', margin: '0 auto var(--sp-3)' }} />
+          <p style={{ color: 'var(--danger)' }}>{error}</p>
         </div>
       ) : (
         <div className="table-wrapper">

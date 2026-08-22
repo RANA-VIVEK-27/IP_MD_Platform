@@ -73,6 +73,20 @@ class ReportUploadResponse(BaseModel):
     document_id: UUID
     status: str
 
+class ReportSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    report_id: UUID
+    patient_id: UUID
+    document_id: UUID
+    report_type: Optional[str] = None
+    extraction_status: str
+    created_at: datetime
+
+class ReportListResponse(BaseModel):
+    data: List[ReportSummaryResponse]
+    next_cursor: Optional[str] = None
+
 class ReportValueResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '../lib/auth-context';
+import { ApiClient } from '../lib/api';
 import { UserRole } from '../lib/types';
 import { Avatar } from './Avatar';
 import {
@@ -51,6 +52,7 @@ export function Navigation() {
   const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const currentRole: UserRole = user?.role || 'patient';
@@ -67,7 +69,23 @@ export function Navigation() {
 
   useEffect(() => { setMobileOpen(false); }, [pathname]);
 
+  // Poll unread notification count every 30 seconds
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    async function fetchCount() {
+      try {
+        const res = await ApiClient.getUnreadCount();
+        if (active) setUnreadCount(res.unread_count);
+      } catch { /* ignore */ }
+    }
+    fetchCount();
+    const interval = setInterval(fetchCount, 30000);
+    return () => { active = false; clearInterval(interval); };
+  }, [user]);
+
   const getNavItems = (role: UserRole): NavItem[] => {
+    const notifItem: NavItem = { label: 'Notifications', href: '/notifications', icon: <IconBell size={16} /> };
     switch (role) {
       case 'patient':
         return [
@@ -77,12 +95,14 @@ export function Navigation() {
           { label: 'Medicines', href: '/patient/catalog', icon: <IconFileText size={16} /> },
           { label: 'Cart', href: '/patient/cart', icon: <IconShoppingCart size={16} /> },
           { label: 'My Orders', href: '/patient/orders', icon: <IconFileText size={16} /> },
+          notifItem,
         ];
       case 'doctor':
         return [
           { label: 'Queue', href: '/doctor', icon: <IconShieldCheck size={16} /> },
           { label: 'Reports', href: '/doctor/reports', icon: <IconFileText size={16} /> },
           { label: 'Audit', href: '/doctor/audit', icon: <IconActivity size={16} /> },
+          notifItem,
         ];
       case 'admin':
         return [
@@ -90,11 +110,27 @@ export function Navigation() {
           { label: 'Partners', href: '/admin/partners', icon: <IconFileText size={16} /> },
           { label: 'Disputes', href: '/admin/disputes', icon: <IconShieldCheck size={16} /> },
           { label: 'SLA Queue', href: '/admin/verification', icon: <IconShieldCheck size={16} /> },
+          notifItem,
+        ];
+      case 'pharmacy_staff_owned':
+        return [
+          { label: 'Dashboard', href: '/admin', icon: <IconActivity size={16} /> },
+          { label: 'Orders', href: '/patient/orders', icon: <IconFileText size={16} /> },
+          { label: 'Catalog', href: '/patient/catalog', icon: <IconFileText size={16} /> },
+          notifItem,
+        ];
+      case 'partner_pharmacy':
+        return [
+          { label: 'Dashboard', href: '/admin', icon: <IconActivity size={16} /> },
+          { label: 'Orders', href: '/patient/orders', icon: <IconFileText size={16} /> },
+          { label: 'Catalog', href: '/patient/catalog', icon: <IconFileText size={16} /> },
+          notifItem,
         ];
       case 'user_admin':
         return [
           { label: 'Doctor KYC', href: '/user-admin', icon: <IconUserCheck size={16} /> },
           { label: 'Accounts', href: '/user-admin/accounts', icon: <IconSettings size={16} /> },
+          notifItem,
         ];
       case 'super_admin':
         return [
@@ -102,6 +138,7 @@ export function Navigation() {
           { label: 'Settings', href: '/super-admin/settings', icon: <IconSettings size={16} /> },
           { label: 'Compliance', href: '/super-admin/compliance', icon: <IconShieldCheck size={16} /> },
           { label: 'Audit Logs', href: '/super-admin/audit', icon: <IconActivity size={16} /> },
+          notifItem,
         ];
       default:
         return [{ label: 'Home', href: '/patient', icon: <IconActivity size={16} /> }];
@@ -221,20 +258,28 @@ export function Navigation() {
 
         {/* Right: Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-          <button
+          <Link
+            href="/notifications"
             className="btn btn-ghost btn-icon btn-sm"
-            style={{ position: 'relative', color: 'var(--text-secondary)' }}
-            aria-label="Notifications"
+            style={{ position: 'relative', color: 'var(--text-secondary)', textDecoration: 'none' }}
+            aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
           >
             <IconBell size={18} />
-            <span
-              style={{
-                position: 'absolute', top: '6px', right: '6px',
-                width: '7px', height: '7px', borderRadius: '50%',
-                background: 'var(--danger)', border: '2px solid var(--bg-surface)',
-              }}
-            />
-          </button>
+            {unreadCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute', top: '2px', right: '2px',
+                  minWidth: '16px', height: '16px', borderRadius: 'var(--radius-pill)',
+                  background: 'var(--danger)', color: '#fff',
+                  fontSize: '10px', fontWeight: 700, lineHeight: '16px',
+                  textAlign: 'center', padding: '0 4px',
+                  border: '2px solid var(--bg-surface)',
+                }}
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </Link>
 
           <button
             className="btn btn-ghost btn-icon btn-sm hide-mobile"

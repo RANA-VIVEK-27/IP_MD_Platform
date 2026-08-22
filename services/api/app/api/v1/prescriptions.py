@@ -52,7 +52,7 @@ async def upload_prescription(
 
     content = await file.read()
 
-    prescription = PrescriptionService.create_prescription_upload(
+    prescription = await PrescriptionService.create_prescription_upload(
         db=db,
         patient=current_user,
         filename=file.filename or "prescription.jpg",

@@ -33,7 +33,7 @@ export default function LoginPage() {
         const me = await res.json();
         router.replace(ROLE_REDIRECTS[me.role] || '/patient');
       } else {
-        router.replace('/patient');
+        router.replace((user?.role && ROLE_REDIRECTS[user.role]) || '/patient');
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Login failed. Please check your credentials.';
@@ -80,7 +80,7 @@ export default function LoginPage() {
 
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label" htmlFor="password">Password</label>
-            <input id="password" type="password" className="input" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" autoComplete="current-password" />
+            <input id="password" type="password" className="input" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" autoComplete="current-password" minLength={6} />
           </div>
 
           <button type="submit" className="btn btn-primary btn-lg" disabled={submitting} style={{ width: '100%' }}>

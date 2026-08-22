@@ -7,14 +7,17 @@ import {
   OrderCreateResponse, OrderSummary, OrderDetail, OrderListResponse, OrderCancelResponse,
   VerificationQueueResponse, VerificationActionResponse,
   PaymentOrderCreateResponse, PaymentCaptureResponse,
-  NotificationListResponse, UnreadCountResponse,
+  NotificationListResponse, NotificationItem, UnreadCountResponse,
   PartnerPharmacyListResponse, DisputeListResponse, OverdueVerificationResponse,
   DashboardSummary,
   DoctorKYCListResponse, DoctorKYCVerifyResponse, AccountActionResponse,
-  AdminCreateResponse, AdminRevokeResponse,
+  AccountListResponse,
+  AdminCreateResponse, AdminRevokeResponse, AdminListResponse,
   PlatformSettingsResponse, PlatformSettingsUpdateResponse,
   AuditLogQueryResponse, ComplianceOverrideResponse,
-  ReportDetail,
+  ReportDetail, ReportListResponse,
+  DocumentUploadResponse, DocumentItem, DocumentDownloadResponse,
+  DocumentListResponse, DocumentStatusPoll, DocumentDeleteResponse,
 } from './types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -28,6 +31,26 @@ export class ApiError extends Error {
   }
 }
 
+async function refreshAccessToken(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  const refreshToken = localStorage.getItem('ipmd_refresh_token');
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    localStorage.setItem('ipmd_access_token', data.access_token);
+    if (data.refresh_token) localStorage.setItem('ipmd_refresh_token', data.refresh_token);
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
   const isMultipart = options.body instanceof FormData;
@@ -38,8 +61,23 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
     if (token) headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
+  let res = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
+
+  if (res.status === 401 && typeof window !== 'undefined') {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      headers['Authorization'] = `Bearer ${newToken}`;
+      res = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
+    }
+  }
+
   if (!res.ok) {
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('ipmd_access_token');
+      localStorage.removeItem('ipmd_refresh_token');
+      localStorage.removeItem('ipmd_user');
+      window.location.href = '/login';
+    }
     let detail = `Request failed (${res.status})`;
     try { const e = await res.json(); detail = e.detail || detail; } catch {}
     throw new ApiError(res.status, detail);
@@ -95,6 +133,8 @@ export const ApiClient = {
     if (reportType) fd.append('report_type', reportType);
     return apiRequest<{ report_id: string; document_id: string; status: string }>('/reports/upload', { method: 'POST', body: fd });
   },
+  listReports: (params?: Record<string, string | number>) =>
+    apiRequest<ReportListResponse>(`/reports${qs(params)}`),
   getReportDetail: (id: string) => apiRequest<ReportDetail>(`/reports/${id}`),
 
   // Verification (Doctor)
@@ -110,6 +150,8 @@ export const ApiClient = {
     }),
   getVerificationAuditLog: (id: string) =>
     apiRequest<{ data: Array<{ actor_id?: string; actor_role: string; action_type: string; timestamp: string; justification?: string }> }>(`/verification/${id}/audit-log`),
+  listDoctorAuditLogs: (params?: Record<string, string | number>) =>
+    apiRequest<AuditLogQueryResponse>(`/verification/my-audit-log${qs(params)}`),
 
   // Catalog
   searchMedicines: (params?: Record<string, string | number>) =>
@@ -168,7 +210,9 @@ export const ApiClient = {
     apiRequest<NotificationListResponse>(`/notifications${qs(params)}`),
   getUnreadCount: () => apiRequest<UnreadCountResponse>('/notifications/unread-count'),
   markNotificationRead: (id: string) =>
-    apiRequest<{ notification_id: string; is_read: boolean }>(`/notifications/${id}/read`, { method: 'PATCH' }),
+    apiRequest<NotificationItem>(`/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllNotificationsRead: () =>
+    apiRequest<{ status: string; marked_read_count: number }>('/notifications/read-all', { method: 'POST' }),
 
   // Admin
   getAdminDashboardSummary: () =>
@@ -193,6 +237,8 @@ export const ApiClient = {
     apiRequest<OverdueVerificationResponse>('/admin/verification-queue/overdue'),
 
   // User Admin
+  listAccounts: (params?: Record<string, string | number>) =>
+    apiRequest<AccountListResponse>(`/user-admin/accounts${qs(params)}`),
   listPendingKYC: () => apiRequest<DoctorKYCListResponse>('/user-admin/doctors/pending-kyc'),
   verifyDoctorLicense: (doctorId: string, decision: string, reason?: string) =>
     apiRequest<DoctorKYCVerifyResponse>(`/user-admin/doctors/${doctorId}/verify-license`, {
@@ -208,6 +254,8 @@ export const ApiClient = {
     }),
 
   // Super Admin
+  listAdminAccounts: (params?: Record<string, string | number>) =>
+    apiRequest<AdminListResponse>(`/super-admin/admins${qs(params)}`),
   createAdminAccount: (data: Record<string, unknown>) =>
     apiRequest<AdminCreateResponse>('/super-admin/admins', {
       method: 'POST', body: JSON.stringify(data),
@@ -226,4 +274,22 @@ export const ApiClient = {
     }),
   queryAuditLogs: (params?: Record<string, string | number>) =>
     apiRequest<AuditLogQueryResponse>(`/super-admin/audit-logs${qs(params)}`),
+
+  // Documents (M12)
+  uploadDocument: (file: File, docType: string = "documents") => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('doc_type', docType);
+    return apiRequest<DocumentUploadResponse>('/documents/upload', { method: 'POST', body: fd });
+  },
+  listDocuments: (params?: Record<string, string | number>) =>
+    apiRequest<DocumentListResponse>(`/documents${qs(params)}`),
+  getDocument: (id: string) =>
+    apiRequest<DocumentItem>(`/documents/${id}`),
+  getDocumentStatus: (id: string) =>
+    apiRequest<DocumentStatusPoll>(`/documents/${id}/status`),
+  getDocumentDownloadUrl: (id: string) =>
+    apiRequest<DocumentDownloadResponse>(`/documents/${id}/download`),
+  deleteDocument: (id: string) =>
+    apiRequest<DocumentDeleteResponse>(`/documents/${id}`, { method: 'DELETE' }),
 };

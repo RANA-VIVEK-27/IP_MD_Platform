@@ -28,5 +28,40 @@ class Settings:
     RAZORPAY_KEY_ID: str = os.getenv("RAZORPAY_KEY_ID", "rzp_test_ipmd2026mockkey")
     RAZORPAY_KEY_SECRET: str = os.getenv("RAZORPAY_KEY_SECRET", "mock_razorpay_secret_key_2026")
 
-settings = Settings()
+    # Storage Configuration (MinIO / S3-compatible)
+    STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # "local" or "minio"
+    STORAGE_ENDPOINT: str = os.getenv("STORAGE_ENDPOINT", "localhost:9000")
+    STORAGE_ACCESS_KEY: str = os.getenv("STORAGE_ACCESS_KEY", "minioadmin")
+    STORAGE_SECRET_KEY: str = os.getenv("STORAGE_SECRET_KEY", "minioadmin123")
+    STORAGE_BUCKET: str = os.getenv("STORAGE_BUCKET", "ipmd-documents")
+    STORAGE_REGION: str = os.getenv("STORAGE_REGION", "us-east-1")
+    STORAGE_USE_SSL: bool = os.getenv("STORAGE_USE_SSL", "false").lower() == "true"
+    STORAGE_LOCAL_PATH: str = os.getenv("STORAGE_LOCAL_PATH", "./storage")
+    STORAGE_SIGNED_URL_EXPIRES: int = int(os.getenv("STORAGE_SIGNED_URL_EXPIRES", "300"))
 
+    # File Upload Validation
+    UPLOAD_MAX_SIZE_BYTES: int = int(os.getenv("UPLOAD_MAX_SIZE_MB", "20")) * 1024 * 1024
+    UPLOAD_ALLOWED_EXTENSIONS: str = os.getenv("UPLOAD_ALLOWED_EXTENSIONS", "jpg,jpeg,png,pdf")
+    UPLOAD_ALLOWED_MIME_TYPES: str = os.getenv(
+        "UPLOAD_ALLOWED_MIME_TYPES",
+        "image/jpeg,image/jpg,image/png,application/pdf"
+    )
+
+    # Malware Scanning
+    MALWARE_SCANNER_ENABLED: bool = os.getenv("MALWARE_SCANNER_ENABLED", "false").lower() == "true"
+    MALWARE_SCANNER_TIMEOUT: int = int(os.getenv("MALWARE_SCANNER_TIMEOUT", "30"))
+
+    # Celery
+    CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+    CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
+
+    @property
+    def UPLOAD_ALLOWED_EXTENSIONS_SET(self) -> set:
+        return set(self.UPLOAD_ALLOWED_EXTENSIONS.split(","))
+
+    @property
+    def UPLOAD_ALLOWED_MIME_TYPES_SET(self) -> set:
+        return set(self.UPLOAD_ALLOWED_MIME_TYPES.split(","))
+
+
+settings = Settings()

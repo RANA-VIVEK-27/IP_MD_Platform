@@ -13,6 +13,7 @@ export default function AdminDisputesPage() {
   const { addToast } = useToast();
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [selectedDispute, setSelectedDispute] = useState<Dispute | null>(null);
   const [resolution, setResolution] = useState('');
@@ -22,10 +23,13 @@ export default function AdminDisputesPage() {
 
   async function loadDisputes() {
     setLoading(true);
+    setError('');
     try {
       const res = await ApiClient.listDisputes({ limit: 50 });
       setDisputes(res.data || []);
-    } catch {} finally { setLoading(false); }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load disputes');
+    } finally { setLoading(false); }
   }
 
   const handleResolve = async () => {
@@ -48,6 +52,11 @@ export default function AdminDisputesPage() {
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
           {[1, 2].map(i => <div key={i} className="skeleton" style={{ height: '56px', borderRadius: 'var(--radius-lg)' }} />)}
+        </div>
+      ) : error ? (
+        <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center' }}>
+          <IconAlertTriangle size={24} style={{ color: 'var(--danger)', margin: '0 auto var(--sp-3)' }} />
+          <p style={{ color: 'var(--danger)' }}>{error}</p>
         </div>
       ) : disputes.length === 0 ? (
         <div className="empty-state" style={{ padding: 'var(--sp-8)' }}>

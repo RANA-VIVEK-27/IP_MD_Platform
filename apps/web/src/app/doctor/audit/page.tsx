@@ -1,32 +1,51 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { ApiClient, ApiError } from '../../../lib/api';
 import { PageHeader } from '../../../components/PageHeader';
-import { Avatar } from '../../../components/Avatar';
-import { StatusBadge } from '../../../components/Badges';
-import { IconCheckCircle, IconXCircle } from '../../../components/Icons';
+import { IconCheckCircle, IconXCircle, IconAlertTriangle } from '../../../components/Icons';
+import { AuditLogEntry } from '../../../lib/types';
 
 export default function DoctorAuditPage() {
-  const auditEntries = [
-    {
-      id: 'aud-9901',
-      prescriptionId: 'rx-9021',
-      patient: 'Rahul Sharma',
-      action: 'APPROVE_PRESCRIPTION',
-      timestamp: 'Today, 2:15:30 PM UTC',
-      status: 'doctor_verified',
-      details: 'All 3 items verified against clinical guidelines. Schedule H dispensing authorized.',
-    },
-    {
-      id: 'aud-9884',
-      prescriptionId: 'rx-8711',
-      patient: 'Suresh Kumar',
-      action: 'REJECT_PRESCRIPTION',
-      timestamp: 'Yesterday, 4:40:12 PM UTC',
-      status: 'rejected',
-      details: 'Missing doctor registration seal on uploaded document.',
-    },
-  ];
+  const [entries, setEntries] = useState<AuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    loadAuditLog();
+  }, []);
+
+  async function loadAuditLog() {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await ApiClient.listDoctorAuditLogs({ limit: 50 });
+      setEntries(res.data || []);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to load audit log';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const getActionLabel = (actionType: string) => {
+    switch (actionType) {
+      case 'PRESCRIPTION_APPROVED': return 'APPROVE PRESCRIPTION';
+      case 'PRESCRIPTION_REJECTED': return 'REJECT PRESCRIPTION';
+      case 'VERIFY_DOCTOR_LICENSE': return 'VERIFY LICENSE';
+      case 'SUSPEND_ACCOUNT': return 'SUSPEND ACCOUNT';
+      case 'REINSTATE_ACCOUNT': return 'REINSTATE ACCOUNT';
+      default: return actionType.replace(/_/g, ' ');
+    }
+  };
+
+  const getActionIcon = (actionType: string) => {
+    if (actionType.includes('APPROVED') || actionType.includes('REINSTATE') || actionType.includes('VERIFY')) {
+      return <IconCheckCircle size={14} style={{ color: 'var(--success)' }} />;
+    }
+    return <IconXCircle size={14} style={{ color: 'var(--danger)' }} />;
+  };
 
   return (
     <div className="app-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-6)' }}>
@@ -35,65 +54,71 @@ export default function DoctorAuditPage() {
         subtitle="Immutable record of all clinical prescription reviews, endorsements, and rejections."
       />
 
-      <div className="table-wrapper">
-        <table className="table" role="table" aria-label="Doctor verification audit log">
-          <thead>
-            <tr>
-              <th scope="col">Audit Log ID</th>
-              <th scope="col">Prescription</th>
-              <th scope="col">Patient</th>
-              <th scope="col">Action & Status</th>
-              <th scope="col">Timestamp (UTC)</th>
-              <th scope="col">Clinical Justification</th>
-            </tr>
-          </thead>
-          <tbody>
-            {auditEntries.map((e) => (
-              <tr key={e.id}>
-                <td>
-                  <span style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                    {e.id}
-                  </span>
-                </td>
-                <td>
-                  <span style={{ fontWeight: 600, color: 'var(--primary)', fontFamily: 'monospace', fontSize: 'var(--text-sm)' }}>
-                    {e.prescriptionId}
-                  </span>
-                </td>
-                <td>
-                  <div className="flex items-center gap-2">
-                    <Avatar name={e.patient} size="sm" />
-                    <span style={{ fontWeight: 500 }}>{e.patient}</span>
-                  </div>
-                </td>
-                <td>
-                  <div className="flex flex-col gap-1">
+      {loading ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+          {[1, 2].map(i => <div key={i} className="skeleton" style={{ height: '56px', borderRadius: 'var(--radius-lg)' }} />)}
+        </div>
+      ) : error ? (
+        <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center' }}>
+          <IconAlertTriangle size={24} style={{ color: 'var(--danger)', margin: '0 auto var(--sp-3)' }} />
+          <p style={{ color: 'var(--danger)' }}>{error}</p>
+          <button className="btn btn-secondary btn-sm" style={{ marginTop: 'var(--sp-3)' }} onClick={loadAuditLog}>Retry</button>
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="empty-state" style={{ padding: 'var(--sp-12)' }}>
+          <div className="empty-state-icon"><IconCheckCircle size={28} /></div>
+          <h3>No audit entries yet</h3>
+          <p>Your verification actions will appear here once you review prescriptions.</p>
+        </div>
+      ) : (
+        <div className="table-wrapper">
+          <table className="table" role="table" aria-label="Doctor verification audit log">
+            <thead>
+              <tr>
+                <th scope="col">Audit Log ID</th>
+                <th scope="col">Action</th>
+                <th scope="col">Target Entity</th>
+                <th scope="col">Timestamp (UTC)</th>
+                <th scope="col">Justification</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr key={entry.audit_log_id}>
+                  <td>
+                    <span style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                      {entry.audit_log_id.slice(0, 12)}
+                    </span>
+                  </td>
+                  <td>
                     <div className="flex items-center gap-2">
-                      {e.action === 'APPROVE_PRESCRIPTION' ? (
-                        <IconCheckCircle size={14} style={{ color: 'var(--success)' }} />
-                      ) : (
-                        <IconXCircle size={14} style={{ color: 'var(--danger)' }} />
-                      )}
+                      {getActionIcon(entry.action_type)}
                       <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                        {e.action.replace(/_/g, ' ')}
+                        {getActionLabel(entry.action_type)}
                       </span>
                     </div>
-                    <StatusBadge status={e.status} />
-                  </div>
-                </td>
-                <td>
-                  <span className="text-caption">{e.timestamp}</span>
-                </td>
-                <td>
-                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                    {e.details}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  </td>
+                  <td>
+                    <span style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)', color: 'var(--primary)' }}>
+                      {entry.target_entity_type}: {entry.target_entity_id.slice(0, 8)}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="text-caption">
+                      {new Date(entry.timestamp).toLocaleString('en-IN', { timeZone: 'UTC' })}
+                    </span>
+                  </td>
+                  <td>
+                    <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      {entry.justification || '—'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -10,9 +10,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session
-from app.db.session import get_engine
-from app.models.users import User
-from app.models.doctor import DoctorLicense
+from app.db.session import engine
+from app.models.identity import User, DoctorLicense
 from app.services.auth_service import hash_password
 import uuid
 from datetime import datetime, timezone
@@ -72,7 +71,6 @@ DEMO_USERS = [
 
 
 def seed():
-    engine = get_engine()
     from sqlalchemy.orm import sessionmaker
     SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
@@ -87,12 +85,17 @@ def seed():
             skipped += 1
             continue
 
+        phone = u["phone"]
+        if phone and db.query(User).filter(User.phone == phone).first():
+            print(f"  INFO  {u['email']} phone {phone} already in use, setting to None")
+            phone = None
+
         user = User(
             user_id=uuid.uuid4(),
             role=u["role"],
             full_name=u["full_name"],
             email=u["email"],
-            phone=u["phone"],
+            phone=phone,
             password_hash=hash_password(u["password"]),
             status="active",
             created_at=datetime.now(timezone.utc),

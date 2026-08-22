@@ -1,18 +1,22 @@
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.identity import User
 from app.api.deps import require_roles, require_approved_doctor
 from app.services.verification import VerificationService
+from app.services.audit_service import AuditService
+from app.services.notification_service import NotificationService
 from app.schemas.prescription import (
     VerificationApproveRequest,
     VerificationRejectRequest,
     VerificationActionResponse,
     VerificationQueueResponse,
     VerificationAuditListResponse,
+    VerificationAuditEntryResponse,
 )
+from app.schemas.admin import AuditLogEntryResponse, AuditLogQueryResponse
 
 router = APIRouter(prefix="/verification", tags=["Doctor Verification & Clinical Audit"])
 
@@ -60,6 +64,21 @@ def approve_prescription(
         notes=req.notes
     )
     db.commit()
+
+    # Dispatch notification to patient
+    try:
+        NotificationService.create_and_dispatch_notification(
+            db=db,
+            user_id=prescription.patient_id,
+            type="verification_result",
+            message=f"Your prescription #{str(prescription_id)[:8]} has been verified and approved by Dr. {current_user.full_name}.",
+            related_entity_type="prescription",
+            related_entity_id=prescription_id,
+        )
+        db.commit()
+    except Exception:
+        pass  # Notification failure should not block the main flow
+
     return VerificationActionResponse(
         prescription_id=prescription.prescription_id,
         verification_status=prescription.verification_status,
@@ -84,6 +103,21 @@ def reject_prescription(
         reason=req.reason
     )
     db.commit()
+
+    # Dispatch notification to patient
+    try:
+        NotificationService.create_and_dispatch_notification(
+            db=db,
+            user_id=prescription.patient_id,
+            type="verification_result",
+            message=f"Your prescription #{str(prescription_id)[:8]} was rejected by Dr. {current_user.full_name}. Reason: {req.reason[:200]}",
+            related_entity_type="prescription",
+            related_entity_id=prescription_id,
+        )
+        db.commit()
+    except Exception:
+        pass  # Notification failure should not block the main flow
+
     return VerificationActionResponse(
         prescription_id=prescription.prescription_id,
         verification_status=prescription.verification_status,
@@ -105,3 +139,25 @@ def get_verification_audit_log(
         prescription_id=prescription_id
     )
     return VerificationAuditListResponse(data=entries)
+
+
+@router.get("/my-audit-log", response_model=AuditLogQueryResponse)
+def get_my_audit_log(
+    limit: int = Query(50, ge=1, le=200),
+    cursor: Optional[str] = Query(None, description="Pagination cursor"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_doctor)
+):
+    """
+    Returns the current doctor's own verification audit trail (BRD FR-11).
+    """
+    entries, next_cursor = AuditService.query_audit_logs(
+        db=db,
+        actor_id=current_user.user_id,
+        limit=limit,
+        cursor=cursor,
+    )
+    return AuditLogQueryResponse(
+        data=[AuditLogEntryResponse.model_validate(e) for e in entries],
+        next_cursor=next_cursor,
+    )

@@ -101,7 +101,7 @@ export default function RegisterPage() {
 
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label" htmlFor="password">Password</label>
-            <input id="password" type="password" className="input" required placeholder="Create a strong password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+            <input id="password" type="password" className="input" required placeholder="Create a strong password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={6} />
           </div>
 
           {role === 'doctor' && (

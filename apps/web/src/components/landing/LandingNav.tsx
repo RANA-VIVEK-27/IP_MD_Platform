@@ -17,30 +17,49 @@ export function LandingNav() {
   const { user, token } = useAuth();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
 
   const isLoggedIn = !!user && !!token && !token.startsWith('demo-token-');
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
+    const onScroll = () => {
+      setScrolled(window.scrollY > 20);
+      const total = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(total > 0 ? (window.scrollY / total) * 100 : 0);
+    };
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
   return (
-    <header
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 200,
-        backgroundColor: scrolled ? 'rgba(255,255,255,0.92)' : 'transparent',
-        backdropFilter: scrolled ? 'blur(12px)' : 'none',
-        WebkitBackdropFilter: scrolled ? 'blur(12px)' : 'none',
-        borderBottom: scrolled ? '1px solid var(--border-light)' : '1px solid transparent',
-        transition: 'all 300ms var(--ease)',
-      }}
-    >
+    <>
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: `${scrollProgress}%`,
+          height: '2px',
+          background: 'linear-gradient(90deg, #087F7B, #22A06B)',
+          zIndex: 300,
+          transition: 'width 50ms linear',
+        }}
+      />
+      <header
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 200,
+          backgroundColor: scrolled ? 'rgba(255,255,255,0.88)' : 'transparent',
+          backdropFilter: scrolled ? 'blur(16px) saturate(180%)' : 'none',
+          WebkitBackdropFilter: scrolled ? 'blur(16px) saturate(180%)' : 'none',
+          borderBottom: scrolled ? '1px solid rgba(217,229,234,0.6)' : '1px solid transparent',
+          transition: 'all 300ms cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
+      >
       <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 var(--sp-6)', height: '64px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
           <div style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-md)', background: 'linear-gradient(135deg, var(--primary) 0%, #0A8E8A 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(8,127,123,0.25)' }}>
@@ -98,5 +117,6 @@ export function LandingNav() {
         </div>
       )}
     </header>
+    </>
   );
 }

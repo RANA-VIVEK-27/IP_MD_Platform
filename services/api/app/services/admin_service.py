@@ -60,6 +60,50 @@ class UserAdminService:
         ]
 
     @staticmethod
+    def list_accounts(
+        db: Session,
+        *,
+        role_filter: Optional[str] = None,
+        status_filter: Optional[str] = None,
+        search: Optional[str] = None,
+        limit: int = 50,
+        cursor: Optional[uuid.UUID] = None,
+    ) -> Tuple[List[User], Optional[str]]:
+        """
+        Lists all user accounts with optional filtering by role, status, and search term.
+        Excludes admin/super_admin accounts (BRD §4.1).
+        """
+        query = db.query(User).filter(
+            User.role.notin_(["admin", "super_admin"])
+        )
+
+        if role_filter:
+            query = query.filter(User.role == role_filter)
+        if status_filter:
+            query = query.filter(User.status == status_filter)
+        if search:
+            like_pattern = f"%{search}%"
+            query = query.filter(
+                (User.full_name.ilike(like_pattern))
+                | (User.email.ilike(like_pattern))
+            )
+
+        query = query.order_by(User.created_at.desc())
+
+        if cursor:
+            cursor_user = db.query(User).filter(User.user_id == cursor).first()
+            if cursor_user:
+                query = query.filter(User.created_at < cursor_user.created_at)
+
+        results = query.limit(limit + 1).all()
+        next_cursor = None
+        if len(results) > limit:
+            next_cursor = str(results[-1].user_id)
+            results = results[:limit]
+
+        return results, next_cursor
+
+    @staticmethod
     def verify_doctor_license(
         db: Session,
         *,
@@ -578,6 +622,24 @@ class SuperAdminService:
             "role": role,
             "audit_log_id": audit_entry.audit_log_id,
         }
+
+    @staticmethod
+    def list_admin_accounts(
+        db: Session,
+        *,
+        limit: int = 50,
+        cursor=None,
+    ) -> tuple:
+        """Lists all admin and user_admin accounts."""
+        query = db.query(User).filter(User.role.in_(["admin", "user_admin"])).order_by(User.created_at.desc())
+        if cursor:
+            query = query.filter(User.created_at < cursor)
+        items = query.limit(limit + 1).all()
+        next_cursor = None
+        if len(items) > limit:
+            next_cursor = items[-1].created_at.isoformat()
+            items = items[:limit]
+        return items, next_cursor
 
     @staticmethod
     def update_admin_permissions(

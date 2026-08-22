@@ -13,7 +13,7 @@ class UserRegisterRequest(BaseModel):
     full_name: str
     email: Optional[str] = None
     phone: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = Field(None, min_length=6)
     license_number: Optional[str] = None
     pharmacy_details: Optional[PharmacyDetails] = None
 
@@ -23,7 +23,7 @@ class EmailVerifyRequest(BaseModel):
 
 class UserLoginRequest(BaseModel):
     email: str
-    password: str
+    password: str = Field(..., min_length=6)
 
 class OTPRequest(BaseModel):
     phone: str

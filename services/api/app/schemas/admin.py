@@ -114,6 +114,24 @@ class AccountReinstateRequest(BaseModel):
     reason_code: str = Field(..., description="Mandatory reason code")
 
 
+class AccountListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: UUID
+    full_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role: str
+    status: str
+    created_at: datetime
+
+
+class AccountListResponse(BaseModel):
+    data: List[AccountListItem]
+    total: int
+    next_cursor: Optional[str] = None
+
+
 class AccountUpdateRequest(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
@@ -139,6 +157,20 @@ class AdminCreateResponse(BaseModel):
     user_id: UUID
     role: str
     audit_log_id: UUID
+
+
+class AdminListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    user_id: UUID
+    full_name: str
+    email: Optional[str] = None
+    role: str
+    status: str
+
+
+class AdminListResponse(BaseModel):
+    data: List[AdminListItem]
+    next_cursor: Optional[str] = None
 
 
 class PermissionUpdateRequest(BaseModel):

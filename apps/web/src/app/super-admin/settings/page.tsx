@@ -14,6 +14,8 @@ export default function SuperAdminSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [sessionTimeout, setSessionTimeout] = useState(15);
+  const [commissionRate, setCommissionRate] = useState(0);
+  const [paymentGatewayRef, setPaymentGatewayRef] = useState('');
 
   useEffect(() => { loadSettings(); }, []);
 
@@ -24,7 +26,11 @@ export default function SuperAdminSettingsPage() {
       setSettings(res);
       setMfaEnabled(res.security_policies?.mfa_required ?? false);
       setSessionTimeout(res.security_policies?.session_timeout_mins ?? 15);
-    } catch {} finally { setLoading(false); }
+      setCommissionRate(res.commission_rate_pct ?? 0);
+      setPaymentGatewayRef(res.payment_gateway_credential_ref ?? '');
+    } catch (e: unknown) {
+      addToast('error', 'Load Failed', e instanceof Error ? e.message : 'Failed to load settings.');
+    } finally { setLoading(false); }
   }
 
   const handleSave = async (e: React.FormEvent) => {
@@ -32,6 +38,8 @@ export default function SuperAdminSettingsPage() {
     setSaving(true);
     try {
       await ApiClient.updatePlatformSettings({
+        commission_rate_pct: commissionRate,
+        payment_gateway_credential: paymentGatewayRef,
         security_policies: {
           mfa_required: mfaEnabled,
           session_timeout_mins: sessionTimeout,
@@ -56,12 +64,12 @@ export default function SuperAdminSettingsPage() {
           <h3 className="section-title">Payment Configuration</h3>
           <div className="form-group">
             <label className="form-label">Commission Rate (%)</label>
-            <input className="input" type="number" step="0.1" value={settings?.commission_rate_pct ?? 0} disabled />
-            <p className="form-hint">Current platform commission rate. Edit requires backend configuration.</p>
+            <input className="input" type="number" step="0.1" min={0} max={100} value={commissionRate} onChange={e => setCommissionRate(parseFloat(e.target.value) || 0)} />
+            <p className="form-hint">Platform commission rate applied to all transactions (0-100%).</p>
           </div>
           <div className="form-group">
             <label className="form-label">Razorpay Key Reference</label>
-            <input className="input" value={settings?.payment_gateway_credential_ref ?? ''} disabled />
+            <input className="input" type="text" value={paymentGatewayRef} onChange={e => setPaymentGatewayRef(e.target.value)} placeholder="e.g. rzp_live_xxxxx" />
           </div>
         </div>
 

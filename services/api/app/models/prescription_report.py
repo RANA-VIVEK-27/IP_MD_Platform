@@ -7,18 +7,53 @@ class Document(Base):
 
     document_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey('users.user_id'), nullable=False)
-    storage_url = Column(String(500), nullable=False)
+
+    # Original file metadata
+    original_filename = Column(String(255), nullable=False)
+    mime_type = Column(String(100), nullable=False)
+    file_size_bytes = Column(Integer, nullable=False)
+    checksum_sha256 = Column(String(64), nullable=True)
+
+    # Legacy fields (kept for backward compatibility)
+    storage_url = Column(String(500), nullable=True)
     file_type = Column(
         Enum('jpg', 'png', 'pdf', name='document_file_type'),
         nullable=False
     )
-    file_size_bytes = Column(Integer, nullable=False)
-    malware_scan_status = Column(
-        Enum('pending', 'clean', 'rejected', name='malware_scan_status'),
+
+    # M12: Real storage
+    storage_key = Column(String(500), nullable=True)
+    storage_provider = Column(String(50), nullable=True, server_default='local')
+
+    # M12: Document lifecycle states
+    doc_status = Column(
+        Enum(
+            'upload_pending', 'uploaded', 'quarantined', 'scanning',
+            'clean', 'processing', 'ready',
+            'upload_failed', 'scan_failed', 'infected', 'processing_failed',
+            'deleted',
+            name='document_status',
+        ),
+        nullable=False,
+        server_default='upload_pending'
+    )
+
+    # M12: Granular scan and processing status
+    scan_status = Column(
+        Enum('pending', 'clean', 'infected', 'scan_failed', name='document_scan_status'),
         nullable=False,
         server_default='pending'
     )
+    processing_status = Column(
+        Enum('pending', 'processing', 'completed', 'failed', name='document_processing_status'),
+        nullable=False,
+        server_default='pending'
+    )
+
+    # M12: Soft delete and timestamps
+    deleted_at = Column(TIMESTAMP(timezone=True), nullable=True)
     uploaded_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
 
 class Prescription(Base):

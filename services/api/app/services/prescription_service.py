@@ -19,7 +19,7 @@ from app.schemas.prescription import (
 
 class PrescriptionService:
     @staticmethod
-    def create_prescription_upload(
+    async def create_prescription_upload(
         db: Session,
         patient: User,
         filename: str,
@@ -30,14 +30,15 @@ class PrescriptionService:
     ) -> Prescription:
         """
         Uploads a prescription document and creates an intake record in 'queued' status.
-        In M4 pre-AI stub mode, auto_process extracts sample fields.
+        Uses real storage via StorageService.upload_document().
         """
-        document = StorageService.save_and_create_document(
+        document = await StorageService.upload_document(
             db=db,
             user_id=patient.user_id,
             filename=filename,
             content=content,
-            content_type=content_type
+            content_type=content_type,
+            doc_type="prescriptions",
         )
 
         presc_id = uuid.uuid4()

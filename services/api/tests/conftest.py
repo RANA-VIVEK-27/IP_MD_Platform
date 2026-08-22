@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID, ENUM
 from pgvector.sqlalchemy import Vector
 
 from fastapi.testclient import TestClient
@@ -28,6 +28,11 @@ def compile_uuid_sqlite(type_, compiler, **kw):
 @compiles(Vector, "sqlite")
 def compile_vector_sqlite(type_, compiler, **kw):
     return "TEXT"
+
+# Compile PostgreSQL ENUMs for SQLite
+@compiles(ENUM, "sqlite")
+def compile_enum_sqlite(type_, compiler, **kw):
+    return "VARCHAR(50)"
 
 # Import all models to ensure all tables exist in Base.metadata
 from app.models import (
@@ -102,3 +107,23 @@ def override_deps():
     app.dependency_overrides[get_db] = _get_test_db
     yield
     app.dependency_overrides.clear()
+
+@pytest.fixture(autouse=True)
+def override_storage_provider():
+    """Force local storage in tests - prevent MinIO connections."""
+    import os
+    import app.core.config as config_module
+    import app.storage.factory as factory
+
+    # Override the settings object directly
+    config_module.settings.STORAGE_PROVIDER = "local"
+    config_module.settings.STORAGE_LOCAL_PATH = "./test_storage"
+    # Reset cached storage instance
+    factory._storage_instance = None
+    yield
+    # Clean up test storage
+    import shutil
+    test_dir = "./test_storage"
+    if os.path.exists(test_dir):
+        shutil.rmtree(test_dir, ignore_errors=True)
+    factory._storage_instance = None

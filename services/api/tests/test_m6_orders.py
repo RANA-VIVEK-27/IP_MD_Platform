@@ -94,7 +94,11 @@ def create_prescription(db_session, patient, verification_status="pending_review
         storage_url="https://s3.local/presc.jpg",
         file_type="jpg",
         file_size_bytes=1024,
-        malware_scan_status="clean",
+        original_filename="prescription.jpg",
+        mime_type="image/jpeg",
+        doc_status="ready",
+        scan_status="clean",
+        processing_status="completed",
         uploaded_at=datetime.now(timezone.utc)
     )
     db_session.add(doc)

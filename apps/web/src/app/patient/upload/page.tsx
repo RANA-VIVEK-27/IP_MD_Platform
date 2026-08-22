@@ -8,17 +8,19 @@ import { PageHeader } from '../../../components/PageHeader';
 
 const STEPS = [
   { id: 'select', label: 'Select File' },
-  { id: 'process', label: 'AI Extraction' },
-  { id: 'review', label: 'Review Results' },
+  { id: 'process', label: 'Processing' },
+  { id: 'review', label: 'Complete' },
 ];
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 const MAX_SIZE = 20 * 1024 * 1024;
 
+type UploadMode = 'prescription' | 'report' | 'document';
+
 export default function UploadPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [docType, setDocType] = useState<'prescription' | 'report'>('prescription');
+  const [mode, setMode] = useState<UploadMode>('prescription');
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -48,76 +50,136 @@ export default function UploadPage() {
     setError('');
     setCurrentStep(1);
     setProgress(10);
-    setStatusMsg('Uploading document to server...');
+    setStatusMsg('Uploading document to secure storage...');
 
     try {
-      let uploadRes;
-      if (docType === 'prescription') {
+      let uploadRes: { prescription_id?: string; report_id?: string; document_id?: string; status?: string };
+
+      if (mode === 'prescription') {
         uploadRes = await ApiClient.uploadPrescription(file);
-      } else {
+      } else if (mode === 'report') {
         uploadRes = await ApiClient.uploadReport(file);
+      } else {
+        uploadRes = await ApiClient.uploadDocument(file);
       }
 
       setProgress(40);
-      setStatusMsg('Document uploaded. AI extraction in progress...');
+      setStatusMsg('Document uploaded. Processing...');
 
-      const prescriptionId = (uploadRes as { prescription_id?: string }).prescription_id || (uploadRes as { report_id?: string }).report_id;
-      if (!prescriptionId) {
-        setProgress(100);
-        setStatusMsg('Upload complete. Redirecting...');
-        setTimeout(() => router.push('/patient'), 1000);
-        return;
-      }
+      const entityId = uploadRes.prescription_id || uploadRes.report_id || uploadRes.document_id;
 
-      let attempts = 0;
-      const maxAttempts = 30;
-      const pollInterval = 2000;
+      if (mode === 'document') {
+        // For general documents, poll document status
+        if (entityId) {
+          let attempts = 0;
+          const maxAttempts = 30;
+          const pollInterval = 2000;
 
-      const poll = async () => {
-        attempts++;
-        try {
-          if (docType === 'prescription') {
-            const status = await ApiClient.getPrescriptionStatus(prescriptionId);
-            const pct = Math.min(40 + (attempts / maxAttempts) * 55, 95);
-            setProgress(pct);
-            setStatusMsg(status.status === 'extracted'
-              ? 'Extraction complete! Redirecting...'
-              : `Processing... ${status.progress_pct}%`);
+          const poll = async () => {
+            attempts++;
+            try {
+              const status = await ApiClient.getDocumentStatus(entityId);
+              const pct = Math.min(40 + (attempts / maxAttempts) * 55, 95);
+              setProgress(pct);
 
-            if (status.status === 'extracted' || status.status === 'needs_review' || status.status === 'failed') {
+              if (status.doc_status === 'ready') {
+                setProgress(100);
+                setCurrentStep(2);
+                setStatusMsg('Document ready! Redirecting...');
+                setTimeout(() => router.push('/patient/documents'), 1000);
+                return;
+              } else if (status.doc_status === 'infected' || status.doc_status === 'scan_failed') {
+                setProgress(100);
+                setCurrentStep(2);
+                setStatusMsg('Document could not be processed. Please try again.');
+                return;
+              }
+
+              setStatusMsg(`Status: ${status.doc_status}...`);
+            } catch {
+              // Keep polling — transient network errors are expected
+            }
+
+            if (attempts < maxAttempts) {
+              setTimeout(poll, pollInterval);
+            } else {
               setProgress(100);
               setCurrentStep(2);
-              setStatusMsg('Extraction complete! Redirecting to results...');
-              setTimeout(() => router.push(`/patient/prescriptions/${prescriptionId}`), 1000);
-              return;
+              setStatusMsg('Processing taking longer than expected. Check your documents page.');
+              setTimeout(() => router.push('/patient/documents'), 2000);
             }
-          } else {
-            const pct = Math.min(40 + (attempts / maxAttempts) * 55, 95);
-            setProgress(pct);
-            setStatusMsg(`Processing report... ${Math.round(pct)}%`);
-            if (attempts >= 5) {
-              setProgress(100);
-              setCurrentStep(2);
-              setStatusMsg('Upload complete! Redirecting...');
-              setTimeout(() => router.push('/patient'), 1000);
-              return;
-            }
-          }
-        } catch {
-          // Silently retry
-        }
+          };
 
-        if (attempts < maxAttempts) {
-          setTimeout(poll, pollInterval);
+          setTimeout(poll, 2000);
         } else {
           setProgress(100);
           setCurrentStep(2);
-          setStatusMsg('Processing taking longer than expected. Redirecting...');
-          setTimeout(() => router.push(`/patient/prescriptions/${prescriptionId}`), 1500);
+          setStatusMsg('Upload complete! Redirecting...');
+          setTimeout(() => router.push('/patient/documents'), 1000);
         }
-      };
+      } else {
+        // Prescription/report flow - poll extraction status
+        if (!entityId) {
+          setProgress(100);
+          setStatusMsg('Upload complete. Redirecting...');
+          setTimeout(() => router.push('/patient'), 1000);
+          return;
+        }
 
-      setTimeout(poll, 2000);
+        let attempts = 0;
+        const maxAttempts = 30;
+        const pollInterval = 2000;
+
+        const poll = async () => {
+          attempts++;
+          try {
+            if (mode === 'prescription') {
+              const status = await ApiClient.getPrescriptionStatus(entityId);
+              const pct = Math.min(40 + (attempts / maxAttempts) * 55, 95);
+              setProgress(pct);
+              setStatusMsg(status.status === 'extracted'
+                ? 'Extraction complete! Redirecting...'
+                : `Processing... ${status.progress_pct}%`);
+
+              if (status.status === 'extracted' || status.status === 'needs_review' || status.status === 'failed') {
+                setProgress(100);
+                setCurrentStep(2);
+                if (status.status === 'failed') {
+                  setStatusMsg('Extraction failed. The document may be unclear. Please try again.');
+                } else {
+                  setStatusMsg('Extraction complete! Redirecting to results...');
+                }
+                setTimeout(() => router.push(`/patient/prescriptions/${entityId}`), 1000);
+                return;
+              }
+            } else {
+              const pct = Math.min(40 + (attempts / maxAttempts) * 55, 95);
+              setProgress(pct);
+              setStatusMsg(`Processing report... ${Math.round(pct)}%`);
+              if (attempts >= 5) {
+                setProgress(100);
+                setCurrentStep(2);
+                setStatusMsg('Upload complete! Redirecting...');
+                setTimeout(() => router.push('/patient'), 1000);
+                return;
+              }
+            }
+          } catch {
+            // Keep polling — transient network errors are expected
+          }
+
+          if (attempts < maxAttempts) {
+            setTimeout(poll, pollInterval);
+          } else {
+            setProgress(100);
+            setCurrentStep(2);
+            setStatusMsg('Processing taking longer than expected. Redirecting...');
+            setTimeout(() => router.push(mode === 'prescription' ? `/patient/prescriptions/${entityId}` : '/patient'), 1500);
+          }
+        };
+
+        setTimeout(poll, 2000);
+      }
     } catch (err) {
       setIsProcessing(false);
       setCurrentStep(0);
@@ -134,7 +196,7 @@ export default function UploadPage() {
     <div style={{ maxWidth: '640px', margin: '0 auto' }}>
       <PageHeader
         title="Upload Medical Document"
-        subtitle="Upload handwritten prescriptions or diagnostic reports (Max 20MB · JPG, PNG, PDF)."
+        subtitle="Upload prescriptions, reports, or general medical documents (Max 20MB · JPG, PNG, PDF)."
       />
 
       <div className="card" style={{ marginBottom: 'var(--sp-6)', padding: 'var(--sp-4) var(--sp-5)' }}>
@@ -171,13 +233,16 @@ export default function UploadPage() {
       {!isProcessing ? (
         <form onSubmit={handleUpload} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Document Classification</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)' }}>
-              <button type="button" className={`btn ${docType === 'prescription' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setDocType('prescription')} style={{ justifyContent: 'flex-start' }}>
-                <IconFileText size={18} /><span>Doctor Prescription</span>
+            <label className="form-label">Document Type</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--sp-3)' }}>
+              <button type="button" className={`btn ${mode === 'prescription' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setMode('prescription')} style={{ justifyContent: 'flex-start' }}>
+                <IconFileText size={18} /><span>Prescription</span>
               </button>
-              <button type="button" className={`btn ${docType === 'report' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setDocType('report')} style={{ justifyContent: 'flex-start' }}>
-                <IconSparkles size={18} /><span>Diagnostic Lab Report</span>
+              <button type="button" className={`btn ${mode === 'report' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setMode('report')} style={{ justifyContent: 'flex-start' }}>
+                <IconSparkles size={18} /><span>Lab Report</span>
+              </button>
+              <button type="button" className={`btn ${mode === 'document' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setMode('document')} style={{ justifyContent: 'flex-start' }}>
+                <IconUpload size={18} /><span>General</span>
               </button>
             </div>
           </div>
@@ -223,7 +288,7 @@ export default function UploadPage() {
 
           <button type="submit" className="btn btn-primary btn-lg" disabled={!file} style={{ width: '100%' }}>
             <IconSparkles size={16} />
-            Start AI Extraction Pipeline
+            {mode === 'document' ? 'Upload & Secure' : 'Start AI Extraction Pipeline'}
           </button>
         </form>
       ) : (

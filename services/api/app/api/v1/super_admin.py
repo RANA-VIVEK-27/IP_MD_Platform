@@ -12,6 +12,8 @@ from app.services.audit_service import AuditService
 from app.schemas.admin import (
     AdminCreateRequest,
     AdminCreateResponse,
+    AdminListResponse,
+    AdminListItem,
     PermissionUpdateRequest,
     PermissionUpdateResponse,
     AdminRevokeResponse,
@@ -25,6 +27,23 @@ from app.schemas.admin import (
 )
 
 router = APIRouter(prefix="/super-admin", tags=["Super Admin System Control"])
+
+
+@router.get("/admins", response_model=AdminListResponse)
+def list_admin_accounts(
+    limit: int = Query(50, ge=1, le=100),
+    cursor: Optional[str] = Query(None, description="Pagination cursor"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("super_admin")),
+):
+    """
+    Lists all admin and user_admin accounts (BRD FR-26 / API §3.10).
+    """
+    items, next_cursor = SuperAdminService.list_admin_accounts(db=db, limit=limit, cursor=cursor)
+    return AdminListResponse(
+        data=[AdminListItem.model_validate(u) for u in items],
+        next_cursor=next_cursor,
+    )
 
 
 @router.post("/admins", response_model=AdminCreateResponse, status_code=status.HTTP_201_CREATED)

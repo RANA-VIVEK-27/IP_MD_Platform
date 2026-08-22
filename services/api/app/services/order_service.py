@@ -434,6 +434,21 @@ class OrderService:
         for f in fulfillments:
             db.refresh(f)
 
+        # Dispatch order confirmation notification
+        try:
+            from app.services.notification_service import NotificationService
+            NotificationService.create_and_dispatch_notification(
+                db=db,
+                user_id=patient_id,
+                type="order_confirmation",
+                message=f"Your order #{str(order.order_id)[:8]} has been placed successfully with {len(fulfillments)} item(s). Total: ₹{round(total_amount, 2):.2f}.",
+                related_entity_type="order",
+                related_entity_id=order.order_id,
+            )
+            db.commit()
+        except Exception:
+            pass  # Notification failure should not block the main flow
+
         return order, fulfillments, round(total_amount, 2)
 
     @staticmethod

@@ -1,6 +1,6 @@
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.identity import User
@@ -9,6 +9,8 @@ from app.services.report_service import ReportService
 from app.schemas.prescription import (
     ReportUploadResponse,
     ReportDetailResponse,
+    ReportSummaryResponse,
+    ReportListResponse,
 )
 
 router = APIRouter(prefix="/reports", tags=["Diagnostic Report Intake & Analysis"])
@@ -30,7 +32,7 @@ async def upload_report(
     """
     content = await file.read()
 
-    report = ReportService.create_report_upload(
+    report = await ReportService.create_report_upload(
         db=db,
         patient=current_user,
         filename=file.filename or "report.pdf",
@@ -45,6 +47,37 @@ async def upload_report(
         document_id=report.document_id,
         status=report.extraction_status
     )
+
+
+@router.get("", response_model=ReportListResponse)
+def list_reports(
+    limit: int = Query(50, ge=1, le=200),
+    cursor: Optional[str] = Query(None, description="Pagination cursor (report_id)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Lists reports accessible to the current user (patients see own, doctors see granted).
+    """
+    cursor_uuid = uuid.UUID(cursor) if cursor else None
+    reports, next_cursor = ReportService.list_reports(
+        db=db,
+        user=current_user,
+        limit=limit,
+        cursor=cursor_uuid,
+    )
+    items = [
+        ReportSummaryResponse(
+            report_id=r.report_id,
+            patient_id=r.patient_id,
+            document_id=r.document_id,
+            report_type=r.report_type,
+            extraction_status=r.extraction_status,
+            created_at=r.created_at,
+        )
+        for r in reports
+    ]
+    return ReportListResponse(data=items, next_cursor=next_cursor)
 
 
 @router.get("/{report_id}", response_model=ReportDetailResponse)

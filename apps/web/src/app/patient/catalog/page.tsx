@@ -15,6 +15,7 @@ export default function CatalogPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [addedToCart, setAddedToCart] = useState<string | null>(null);
+  const [addingToCart, setAddingToCart] = useState<string | null>(null);
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -55,9 +56,25 @@ export default function CatalogPage() {
   };
 
   const handleAddToCart = async (item: Medicine) => {
-    setAddedToCart(item.medicine_id);
-    addToast('success', 'Added to Cart', `${item.name} has been added to your cart.`);
-    setTimeout(() => setAddedToCart(null), 1500);
+    setAddingToCart(item.medicine_id);
+    try {
+      // Get or create cart
+      let cartId = localStorage.getItem('ipmd_cart_id');
+      if (!cartId) {
+        const cartRes = await ApiClient.createCart();
+        cartId = cartRes.cart_id;
+        localStorage.setItem('ipmd_cart_id', cartId);
+      }
+      await ApiClient.addCartItem(cartId, item.medicine_id, 1);
+      setAddedToCart(item.medicine_id);
+      addToast('success', 'Added to Cart', `${item.name} has been added to your cart.`);
+      setTimeout(() => setAddedToCart(null), 1500);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to add to cart';
+      addToast('error', 'Add Failed', msg);
+    } finally {
+      setAddingToCart(null);
+    }
   };
 
   return (
@@ -112,8 +129,8 @@ export default function CatalogPage() {
                       {stockLevel.label} ({item.total_stock})
                     </span>
                   </div>
-                  <button className={`btn ${isAdded ? 'btn-secondary' : 'btn-primary'}`} style={{ width: '100%' }} onClick={() => handleAddToCart(item)}>
-                    {isAdded ? <><IconCheckCircle size={16} />Added</> : <><IconShoppingCart size={16} />Add to Cart</>}
+                  <button className={`btn ${isAdded ? 'btn-secondary' : 'btn-primary'}`} style={{ width: '100%' }} onClick={() => handleAddToCart(item)} disabled={addingToCart === item.medicine_id}>
+                    {addingToCart === item.medicine_id ? 'Adding...' : isAdded ? <><IconCheckCircle size={16} />Added</> : <><IconShoppingCart size={16} />Add to Cart</>}
                   </button>
                 </div>
               </div>

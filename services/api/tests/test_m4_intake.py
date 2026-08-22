@@ -81,7 +81,8 @@ class TestPrescriptionUpload:
         doc = db_session.query(Document).filter(Document.document_id == presc.document_id).first()
         assert doc is not None
         assert doc.file_type == "pdf"
-        assert doc.malware_scan_status == "clean"
+        assert doc.scan_status == "pending"  # M12: scan happens async via Celery
+        assert doc.doc_status == "quarantined"
 
     def test_prescription_upload_file_too_large(self, db_session):
         patient = create_test_user(db_session, role="patient")
@@ -130,7 +131,7 @@ class TestPrescriptionRetrievalAndStatus:
         patient = create_test_user(db_session, role="patient")
         headers = get_auth_headers(patient)
 
-        files = {"file": ("rx.png", io.BytesIO(b"img"), "image/png")}
+        files = {"file": ("rx.png", io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50), "image/png")}
         up_res = client.post("/api/v1/prescriptions/upload", headers=headers, files=files, data={"document_type": "prescription"})
         presc_id = up_res.json()["prescription_id"]
 
@@ -145,7 +146,7 @@ class TestPrescriptionRetrievalAndStatus:
         patient = create_test_user(db_session, role="patient")
         headers = get_auth_headers(patient)
 
-        files = {"file": ("rx.jpg", io.BytesIO(b"img"), "image/jpeg")}
+        files = {"file": ("rx.jpg", io.BytesIO(b"\xff\xd8\xff\xe0" + b"\x00" * 50), "image/jpeg")}
         up_res = client.post("/api/v1/prescriptions/upload", headers=headers, files=files, data={"document_type": "prescription"})
         presc_id = up_res.json()["prescription_id"]
 
@@ -166,7 +167,7 @@ class TestPrescriptionRetrievalAndStatus:
         headers_a = get_auth_headers(patient_a)
         headers_b = get_auth_headers(patient_b)
 
-        files = {"file": ("rx.jpg", io.BytesIO(b"img"), "image/jpeg")}
+        files = {"file": ("rx.jpg", io.BytesIO(b"\xff\xd8\xff\xe0" + b"\x00" * 50), "image/jpeg")}
         up_res = client.post("/api/v1/prescriptions/upload", headers=headers_a, files=files, data={"document_type": "prescription"})
         presc_id = up_res.json()["prescription_id"]
 
@@ -180,7 +181,7 @@ class TestPrescriptionRetrievalAndStatus:
         headers = get_auth_headers(patient)
 
         for i in range(3):
-            files = {"file": (f"rx_{i}.png", io.BytesIO(b"img"), "image/png")}
+            files = {"file": (f"rx_{i}.png", io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50), "image/png")}
             client.post("/api/v1/prescriptions/upload", headers=headers, files=files, data={"document_type": "prescription"})
 
         list_res = client.get("/api/v1/prescriptions?limit=2", headers=headers)
@@ -221,7 +222,7 @@ class TestDoctorVerificationWorkflow:
         doctor_headers = get_auth_headers(doctor)
 
         # Upload prescription
-        files = {"file": ("rx.pdf", io.BytesIO(b"rx"), "application/pdf")}
+        files = {"file": ("rx.pdf", io.BytesIO(b"%PDF-1.4 fake rx data"), "application/pdf")}
         client.post("/api/v1/prescriptions/upload", headers=patient_headers, files=files, data={"document_type": "prescription"})
 
         queue_res = client.get("/api/v1/verification/queue", headers=doctor_headers)
@@ -237,7 +238,7 @@ class TestDoctorVerificationWorkflow:
         patient_headers = get_auth_headers(patient)
         doctor_headers = get_auth_headers(doctor)
 
-        files = {"file": ("rx.pdf", io.BytesIO(b"rx"), "application/pdf")}
+        files = {"file": ("rx.pdf", io.BytesIO(b"%PDF-1.4 fake rx data"), "application/pdf")}
         up_res = client.post("/api/v1/prescriptions/upload", headers=patient_headers, files=files, data={"document_type": "prescription"})
         presc_id = up_res.json()["prescription_id"]
 
@@ -268,7 +269,7 @@ class TestDoctorVerificationWorkflow:
         patient_headers = get_auth_headers(patient)
         doctor_headers = get_auth_headers(doctor)
 
-        files = {"file": ("rx.pdf", io.BytesIO(b"rx"), "application/pdf")}
+        files = {"file": ("rx.pdf", io.BytesIO(b"%PDF-1.4 fake rx data"), "application/pdf")}
         up_res = client.post("/api/v1/prescriptions/upload", headers=patient_headers, files=files, data={"document_type": "prescription"})
         presc_id = up_res.json()["prescription_id"]
 
@@ -293,7 +294,7 @@ class TestDoctorVerificationWorkflow:
         patient_headers = get_auth_headers(patient)
         doctor_headers = get_auth_headers(doctor)
 
-        files = {"file": ("rx.pdf", io.BytesIO(b"rx"), "application/pdf")}
+        files = {"file": ("rx.pdf", io.BytesIO(b"%PDF-1.4 fake rx data"), "application/pdf")}
         up_res = client.post("/api/v1/prescriptions/upload", headers=patient_headers, files=files, data={"document_type": "prescription"})
         presc_id = up_res.json()["prescription_id"]
 
@@ -312,7 +313,7 @@ class TestDoctorVerificationWorkflow:
         patient_headers = get_auth_headers(patient)
         doctor_headers = get_auth_headers(doctor)
 
-        files = {"file": ("rx.pdf", io.BytesIO(b"rx"), "application/pdf")}
+        files = {"file": ("rx.pdf", io.BytesIO(b"%PDF-1.4 fake rx data"), "application/pdf")}
         up_res = client.post("/api/v1/prescriptions/upload", headers=patient_headers, files=files, data={"document_type": "prescription"})
         presc_id = up_res.json()["prescription_id"]
 
@@ -333,7 +334,7 @@ class TestDoctorVerificationWorkflow:
         patient = create_test_user(db_session, role="patient")
         headers = get_auth_headers(patient)
 
-        files = {"file": ("rx.pdf", io.BytesIO(b"rx"), "application/pdf")}
+        files = {"file": ("rx.pdf", io.BytesIO(b"%PDF-1.4 fake rx data"), "application/pdf")}
         up_res = client.post("/api/v1/prescriptions/upload", headers=headers, files=files, data={"document_type": "prescription"})
         presc_id = up_res.json()["prescription_id"]
 
@@ -361,7 +362,7 @@ class TestDoctorVerificationWorkflow:
         patient_headers = get_auth_headers(patient)
         doctor_headers = get_auth_headers(doctor)
 
-        files = {"file": ("rx.pdf", io.BytesIO(b"rx"), "application/pdf")}
+        files = {"file": ("rx.pdf", io.BytesIO(b"%PDF-1.4 fake rx data"), "application/pdf")}
         up_res = client.post("/api/v1/prescriptions/upload", headers=patient_headers, files=files, data={"document_type": "prescription"})
         presc_id = up_res.json()["prescription_id"]
 

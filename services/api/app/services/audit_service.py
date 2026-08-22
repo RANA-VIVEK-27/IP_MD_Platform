@@ -65,6 +65,7 @@ class AuditService:
     def query_audit_logs(
         db: Session,
         *,
+        actor_id: Optional[uuid.UUID] = None,
         actor_role: Optional[str] = None,
         action_type: Optional[str] = None,
         date_from: Optional[datetime] = None,
@@ -74,13 +75,15 @@ class AuditService:
     ) -> tuple[List[AuditLogEntry], Optional[str]]:
         """
         Queries the append-only audit log with optional filters and cursor-based pagination.
-        Used by Super Admin audit log query (BRD FR-29).
+        Used by Super Admin audit log query (BRD FR-29) and doctor audit log (BRD FR-11).
 
         Returns:
             Tuple of (list of entries, next_cursor or None).
         """
         query = db.query(AuditLogEntry)
 
+        if actor_id:
+            query = query.filter(AuditLogEntry.actor_id == actor_id)
         if actor_role:
             query = query.filter(AuditLogEntry.actor_role == actor_role)
         if action_type:

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ApiClient } from '../../lib/api';
+import { ApiClient, ApiError } from '../../lib/api';
 import { PageHeader } from '../../components/PageHeader';
 import { useToast } from '../../components/Toast';
 import { IconBell, IconCheckCircle, IconAlertTriangle, IconClock } from '../../components/Icons';
@@ -12,44 +12,58 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => { loadNotifications(); }, []);
 
   async function loadNotifications() {
     setLoading(true);
+    setError('');
     try {
       const [notifRes, countRes] = await Promise.allSettled([
-        ApiClient.listNotifications({ limit: 50 }),
+        ApiClient.listNotifications({ page_size: 50 }),
         ApiClient.getUnreadCount(),
       ]);
       if (notifRes.status === 'fulfilled') setNotifications(notifRes.value.items || []);
+      else setError('Failed to load notifications');
       if (countRes.status === 'fulfilled') setUnreadCount(countRes.value.unread_count);
-    } catch {} finally { setLoading(false); }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to load notifications';
+      setError(msg);
+    } finally { setLoading(false); }
   }
 
   const handleMarkRead = async (notifId: string) => {
     try {
       await ApiClient.markNotificationRead(notifId);
-      setNotifications(prev => prev.map(n => n.notification_id === notifId ? { ...n, is_read: true } : n));
+      setNotifications(prev => prev.map(n => n.notification_id === notifId ? { ...n, is_read: true, read: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch {}
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to mark as read';
+      addToast('error', 'Error', msg);
+    }
   };
 
   const handleMarkAllRead = async () => {
     try {
-      const unread = notifications.filter(n => !n.is_read);
-      await Promise.all(unread.map(n => ApiClient.markNotificationRead(n.notification_id)));
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      await ApiClient.markAllNotificationsRead();
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true, read: true })));
       setUnreadCount(0);
       addToast('success', 'All Caught Up', 'All notifications marked as read.');
-    } catch {}
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to mark all as read';
+      addToast('error', 'Error', msg);
+    }
   };
 
   const getIcon = (type: string) => {
     switch (type) {
-      case 'rx_verified': return <IconCheckCircle size={16} style={{ color: 'var(--success)' }} />;
-      case 'rx_rejected': return <IconAlertTriangle size={16} style={{ color: 'var(--danger)' }} />;
-      case 'order_update': return <IconBell size={16} style={{ color: 'var(--primary)' }} />;
+      case 'order_confirmation': return <IconCheckCircle size={16} style={{ color: 'var(--success)' }} />;
+      case 'verification_result': return <IconCheckCircle size={16} style={{ color: 'var(--primary)' }} />;
+      case 'dispatch': return <IconClock size={16} style={{ color: 'var(--primary)' }} />;
+      case 'delivery': return <IconCheckCircle size={16} style={{ color: 'var(--success)' }} />;
+      case 'refill_reminder': return <IconBell size={16} style={{ color: 'var(--warning)' }} />;
+      case 'abnormal_report_flag': return <IconAlertTriangle size={16} style={{ color: 'var(--danger)' }} />;
       default: return <IconClock size={16} style={{ color: 'var(--text-muted)' }} />;
     }
   };
@@ -71,6 +85,12 @@ export default function NotificationsPage() {
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
           {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: '64px', borderRadius: 'var(--radius-lg)' }} />)}
+        </div>
+      ) : error ? (
+        <div className="card" style={{ padding: 'var(--sp-6)', textAlign: 'center' }}>
+          <IconAlertTriangle size={24} style={{ color: 'var(--danger)', margin: '0 auto var(--sp-3)' }} />
+          <p style={{ color: 'var(--danger)' }}>{error}</p>
+          <button className="btn btn-secondary btn-sm" style={{ marginTop: 'var(--sp-3)' }} onClick={loadNotifications}>Retry</button>
         </div>
       ) : notifications.length === 0 ? (
         <div className="empty-state" style={{ padding: 'var(--sp-8)' }}>
