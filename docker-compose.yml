@@ -78,6 +78,10 @@ services:
       dockerfile: Dockerfile
     container_name: ipmd_ai
     restart: unless-stopped
+    environment:
+      GOOGLE_VISION_API_KEY: ${GOOGLE_VISION_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     ports:
       - "8001:8001"
 

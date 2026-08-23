@@ -1,15 +1,25 @@
+import os
+import sys
 import uuid
+from pathlib import Path
 import pytest
 from datetime import datetime, timezone
 from fastapi.testclient import TestClient
+
+# Ensure root monorepo directory is in sys.path for services.ai import
+root_dir = str(Path(__file__).resolve().parents[3])
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
 from app.main import app
 from app.core.security import hash_password
 from app.models.identity import User
 from app.models.prescription_report import Prescription, Document, Report
 from app.services.ai_service import AIService, NON_DIAGNOSTIC_DISCLAIMER, EMERGENCY_RESPONSE
+from services.ai.app.main import app as ai_app
 
 client = TestClient(app)
+ai_client = TestClient(ai_app)
 
 
 @pytest.fixture
@@ -91,7 +101,6 @@ def test_chat_message_turn_disclaimer_and_rag(unique_patient):
     1. First response contains mandatory non-diagnostic disclosure (BRD FR-11).
     2. Subsequent response does not duplicate the long header disclosure.
     """
-    # 1. Create Session
     res_sess = client.post(
         "/api/v1/ai/chat/sessions",
         json={"consent_given": True},
@@ -99,7 +108,6 @@ def test_chat_message_turn_disclaimer_and_rag(unique_patient):
     )
     session_id = res_sess.json()["session_id"]
 
-    # 2. First message turn
     res_msg1 = client.post(
         f"/api/v1/ai/chat/sessions/{session_id}/messages",
         json={"text": "What is the recommended dosage for Metformin?"},
@@ -116,7 +124,6 @@ def test_chat_message_turn_disclaimer_and_rag(unique_patient):
     assert assistant_m1["guardrail_triggered"] is False
     assert NON_DIAGNOSTIC_DISCLAIMER in assistant_m1["text"]
 
-    # 3. Second message turn
     res_msg2 = client.post(
         f"/api/v1/ai/chat/sessions/{session_id}/messages",
         json={"text": "Are there any interactions with food?"},
@@ -125,8 +132,6 @@ def test_chat_message_turn_disclaimer_and_rag(unique_patient):
     assert res_msg2.status_code == 200
     data2 = res_msg2.json()
     assistant_m2 = data2["assistant_message"]
-
-    # Second message should not duplicate full disclaimer header
     assert NON_DIAGNOSTIC_DISCLAIMER not in assistant_m2["text"]
 
 
@@ -144,6 +149,30 @@ def test_emergency_red_flag_guardrail_escalation(unique_patient):
     res_msg = client.post(
         f"/api/v1/ai/chat/sessions/{session_id}/messages",
         json={"text": "I am experiencing severe chest pain and difficulty breathing right now."},
+        headers=unique_patient["headers"]
+    )
+    assert res_msg.status_code == 200
+    data = res_msg.json()
+    assistant_m = data["assistant_message"]
+
+    assert assistant_m["guardrail_triggered"] is True
+    assert EMERGENCY_RESPONSE in assistant_m["text"]
+
+
+def test_emergency_red_flag_suicidal(unique_patient):
+    """
+    Verifies that suicidal ideation keywords trigger emergency escalation notice.
+    """
+    res_sess = client.post(
+        "/api/v1/ai/chat/sessions",
+        json={"consent_given": True},
+        headers=unique_patient["headers"]
+    )
+    session_id = res_sess.json()["session_id"]
+
+    res_msg = client.post(
+        f"/api/v1/ai/chat/sessions/{session_id}/messages",
+        json={"text": "I am feeling desperate and having suicidal thoughts."},
         headers=unique_patient["headers"]
     )
     assert res_msg.status_code == 200
@@ -176,7 +205,7 @@ def test_chat_history_retrieval(unique_patient):
     assert res_hist.status_code == 200
     hist = res_hist.json()
     assert hist["session_id"] == session_id
-    assert hist["total"] == 2  # 1 user + 1 assistant
+    assert hist["total"] == 2
 
 
 def test_sub_threshold_ocr_confidence_routes_to_needs_review():
@@ -186,7 +215,6 @@ def test_sub_threshold_ocr_confidence_routes_to_needs_review():
     from tests.conftest import TestingSessionLocal
     db = TestingSessionLocal()
     try:
-        # Create doc & prescription
         patient = User(
             user_id=uuid.uuid4(),
             role="patient",
@@ -221,9 +249,57 @@ def test_sub_threshold_ocr_confidence_routes_to_needs_review():
         db.add(prescription)
         db.commit()
 
-        # Run OCR with low confidence simulation
         processed = AIService.process_prescription_ocr(db, prescription, simulate_low_confidence=True)
         assert processed.extraction_status == "needs_review"
+    finally:
+        db.close()
+
+
+def test_diagnostic_report_nlp_abnormal_explanation():
+    """
+    Verifies diagnostic report parsing flags abnormal metrics and generates plain language summary.
+    """
+    from tests.conftest import TestingSessionLocal
+    db = TestingSessionLocal()
+    try:
+        patient = User(
+            user_id=uuid.uuid4(),
+            role="patient",
+            full_name="Report Patient",
+            email=f"report_{uuid.uuid4().hex[:6]}@example.com",
+            status="active"
+        )
+        db.add(patient)
+
+        doc = Document(
+            document_id=uuid.uuid4(),
+            uploaded_by=patient.user_id,
+            original_filename="report.pdf",
+            mime_type="application/pdf",
+            storage_url="storage/reports/report.pdf",
+            file_type="pdf",
+            file_size_bytes=8000,
+            doc_status="clean",
+            scan_status="clean",
+            uploaded_at=datetime.now(timezone.utc)
+        )
+        db.add(doc)
+
+        report = Report(
+            report_id=uuid.uuid4(),
+            document_id=doc.document_id,
+            patient_id=patient.user_id,
+            report_type="blood_test",
+            extraction_status="queued",
+            created_at=datetime.now(timezone.utc)
+        )
+        db.add(report)
+        db.commit()
+
+        processed = AIService.process_report_nlp(db, report, simulate_abnormal=True)
+        assert processed.extraction_status == "extracted"
+        assert processed.ai_explanation is not None
+        assert "elevated" in processed.ai_explanation.lower() or "hyperglycemia" in processed.ai_explanation.lower()
     finally:
         db.close()
 
@@ -238,3 +314,35 @@ def test_seed_knowledge_embeddings(super_admin_headers):
     data = res.json()
     assert data["status"] == "success"
     assert "records_added" in data
+
+
+def test_ai_microservice_direct_endpoints():
+    """Directly tests services/ai microservice FastAPI endpoints."""
+    health_res = ai_client.get("/health")
+    assert health_res.status_code == 200
+    assert health_res.json()["service"] == "ipmd-ai-service"
+
+    ocr_res = ai_client.post(
+        "/api/v1/ai/extract-prescription",
+        json={"prescription_id": str(uuid.uuid4()), "simulate_low_confidence": True}
+    )
+    assert ocr_res.status_code == 200
+    assert ocr_res.json()["extraction_status"] == "needs_review"
+
+    nlp_res = ai_client.post(
+        "/api/v1/ai/parse-report",
+        json={"report_id": str(uuid.uuid4()), "simulate_abnormal": True}
+    )
+    assert nlp_res.status_code == 200
+    assert nlp_res.json()["ai_explanation"] is not None
+
+    chat_res = ai_client.post(
+        "/api/v1/ai/chat-completion",
+        json={
+            "session_id": str(uuid.uuid4()),
+            "message_text": "Severe chest pain",
+            "is_first_message": True
+        }
+    )
+    assert chat_res.status_code == 200
+    assert chat_res.json()["guardrail_triggered"] is True
