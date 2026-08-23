@@ -51,8 +51,15 @@ async def extract_prescription(req: PrescriptionExtractionRequest):
     Calculates per-field confidence scores. Flags fields < 0.85 as needs_review.
     """
     try:
+        image_bytes = None
+        if req.image_base64:
+            import base64
+            image_bytes = base64.b64decode(req.image_base64)
+
         res = OCRNLPEngine.extract_prescription(
             prescription_id=req.prescription_id,
+            image_bytes=image_bytes,
+            image_base64=req.image_base64,
             filename=req.filename or "prescription.jpg",
             simulate_low_confidence=req.simulate_low_confidence,
         )
@@ -75,8 +82,15 @@ async def parse_report(req: ReportParseRequest):
     Flags abnormal metrics with plain-language diagnostic summaries.
     """
     try:
+        doc_bytes = None
+        if req.document_base64:
+            import base64
+            doc_bytes = base64.b64decode(req.document_base64)
+
         res = OCRNLPEngine.parse_report(
             report_id=req.report_id,
+            doc_bytes=doc_bytes,
+            doc_base64=req.document_base64,
             filename=req.filename or "lab_report.pdf",
             simulate_abnormal=req.simulate_abnormal,
         )

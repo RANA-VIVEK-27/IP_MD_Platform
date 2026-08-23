@@ -102,6 +102,7 @@ class NotificationService:
             created_at=now,
         )
         db.add(notification)
+        db.flush()
 
         target_channels = []
         if channels_override:

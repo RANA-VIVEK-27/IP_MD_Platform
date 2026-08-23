@@ -14,6 +14,323 @@ from .schemas import (
 CONFIDENCE_THRESHOLD = 0.850
 
 
+def _tesseract_ocr(image_bytes: bytes) -> str:
+    """Extract text from image using Tesseract OCR locally."""
+    try:
+        import pytesseract
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(image_bytes))
+        text = pytesseract.image_to_string(img)
+        return text.strip()
+    except Exception as e:
+        print(f"[Tesseract OCR Error]: {e}")
+        return ""
+
+
+def _extract_prescription_fields_from_text(ocr_text: str) -> List[Tuple[str, str, float]]:
+    """
+    Structured extraction of prescription fields from raw OCR text.
+    Parses the Rx table format: numbered entries with Medicine, Dose, Frequency, Duration.
+    Also extracts patient name, doctor name, and diagnosis from header.
+    """
+    fields = []
+    lines = ocr_text.split('\n')
+
+    # --- 1. Patient Name ---
+    patient_name = ""
+    for line in lines:
+        m = re.search(r"patient\s*name\s*[:\-]?\s*(.+)", line, re.IGNORECASE)
+        if m:
+            patient_name = m.group(1).strip()
+            patient_name = re.sub(r"[:\s]+$", "", patient_name)
+            break
+    if not patient_name:
+        m = re.search(r"(?:patient|name)\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", ocr_text)
+        if m:
+            patient_name = m.group(1).strip()
+    if patient_name:
+        fields.append(("patient_name", patient_name[:60], 0.92))
+
+    # --- 2. Prescribing Doctor ---
+    doctor = ""
+    # Look for "Dr. Name Name" pattern in header (before the Rx section)
+    rx_idx = len(ocr_text)
+    for marker in ["Rx", "Diagnosis", "Medicine", "Patient Name"]:
+        idx = ocr_text.lower().find(marker.lower())
+        if idx != -1 and idx < rx_idx:
+            rx_idx = idx
+    header_text = ocr_text[:rx_idx]
+    dr_matches = re.findall(r"Dr\.?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})", header_text)
+    if dr_matches:
+        doctor = "Dr. " + dr_matches[0].strip()
+    if not doctor:
+        m = re.search(r"Dr\.?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})", ocr_text)
+        if m:
+            doctor = "Dr. " + m.group(1).strip()
+    if doctor:
+        fields.append(("prescribing_doctor", doctor[:60], 0.93))
+
+    # --- 3. Diagnosis ---
+    diagnosis = ""
+    m = re.search(r"diagnosis\s*[:\-]?\s*(.+)", ocr_text, re.IGNORECASE)
+    if m:
+        diagnosis = m.group(1).strip()[:80]
+    if diagnosis:
+        fields.append(("diagnosis", diagnosis, 0.90))
+
+    # --- 4. Parse Medicine Table (line-by-line) ---
+    medicines = []
+    med_prefix_re = re.compile(
+        r"^\s*(?:\(?\d+\)?)\s+"               # number: 1, (1), 1)
+        r"(Tab\.?|Syrup|Cap\.?|Capsule|Injection|Inj\.?|Drops?|Suspension|Gel|Ointment|Cream|Sachet)"
+        r"\s+",
+        re.IGNORECASE
+    )
+    freq_re = re.compile(
+        r"((?:Once|Twice|Thrice|Three times|Four times)\s+Daily(?:\s*\([^)]*\))?)",
+        re.IGNORECASE
+    )
+    dur_re = re.compile(r"(\d+\s*(?:days?|weeks?|months?))", re.IGNORECASE)
+    dose_form_re = re.compile(r"(\d+(?:\.\d+)?\s*(?:Tablet|tablet|Capsule|capsule|Cap|cap|ml|drop[s]?|Sachet|sachet|g\b))")
+
+    def _parse_medicine_line(line_text):
+        """Parse a single medicine line into name, dose, frequency, duration."""
+        text = line_text.strip()
+
+        # Find frequency
+        freq_match = freq_re.search(text)
+        frequency = freq_match.group(1) if freq_match else ""
+
+        # Find duration (after frequency if possible)
+        dur_match = dur_re.search(text)
+        duration = dur_match.group(1) if dur_match else ""
+
+        # Find dose form (e.g. "1 Tablet", "5 ml")
+        dose_form = ""
+        for dm in dose_form_re.finditer(text):
+            candidate = dm.group(1)
+            # Verify it's a dose form, not part of medicine name strength
+            if re.search(r"(?:Tablet|Capsule|Cap|ml|drop|sachet)", candidate, re.IGNORECASE):
+                dose_form = candidate
+                break
+
+        # Extract medicine name: everything before the dose form (or before freq if no dose form)
+        med_name = text
+        if dose_form:
+            idx = text.find(dose_form)
+            if idx > 0:
+                med_name = text[:idx].strip()
+        elif freq_match:
+            med_name = text[:freq_match.start()].strip()
+
+        # Remove dose form from name if it got included
+        if dose_form and med_name.endswith(dose_form):
+            med_name = med_name[:-len(dose_form)].strip()
+
+        # Clean trailing strength from name if it duplicated
+        # e.g. "Tab. Azithromycin 500 mg 500 mg" -> "Tab. Azithromycin 500 mg"
+
+        return {
+            "name": med_name[:80],
+            "dose": dose_form[:40] if dose_form else "",
+            "frequency": frequency[:50],
+            "duration": duration[:30],
+        }
+
+    in_medicine_section = False
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        low = stripped.lower()
+
+        if not stripped:
+            i += 1
+            continue
+
+        # Detect section boundaries
+        if re.match(r"medicine|medication|drug", low) and ("dose" in low or "frequency" in low or "duration" in low):
+            in_medicine_section = True
+            i += 1
+            continue
+        if any(kw in low for kw in ["advice", "test", "follow up", "note:", "signature"]):
+            in_medicine_section = False
+            i += 1
+            continue
+
+        # Check if line starts with a medicine prefix
+        m = med_prefix_re.match(stripped)
+
+        if m:
+            # Collect this line + continuation lines (like "(For Fever)")
+            full_line = stripped
+            while i + 1 < len(lines):
+                next_stripped = lines[i + 1].strip()
+                if not next_stripped:
+                    i += 1
+                    continue
+                # Continuation lines start with ( or are short notes
+                if next_stripped.startswith("(") and not med_prefix_re.match(next_stripped):
+                    full_line += " " + next_stripped
+                    i += 1
+                else:
+                    break
+
+            # Remove leading number
+            med_text = re.sub(r"^\s*\(?\d+\)?\s+", "", full_line)
+            parsed = _parse_medicine_line(med_text)
+            if parsed["name"]:
+                medicines.append(parsed)
+
+        i += 1
+
+    # Build medicine fields: each medicine gets its own set of fields
+    if medicines:
+        for idx, med in enumerate(medicines):
+            prefix = f"medicine_{idx + 1}" if len(medicines) > 1 else "medicine"
+            fields.append((f"{prefix}_name", med["name"], 0.91))
+            if med["dose"]:
+                fields.append((f"{prefix}_dose", med["dose"], 0.90))
+            if med["frequency"]:
+                fields.append((f"{prefix}_frequency", med["frequency"], 0.91))
+            if med["duration"]:
+                fields.append((f"{prefix}_duration", med["duration"], 0.92))
+    else:
+        # Fallback: try to find any medicine-like line
+        for line in lines:
+            stripped = line.strip()
+            if re.match(r"^\s*(?:Tab|Syrup|Cap|Capsule|Inj|Injection)\b", stripped, re.IGNORECASE):
+                parsed = _parse_medicine_line(stripped)
+                if parsed["name"]:
+                    fields.append(("medicine_name", parsed["name"][:80], 0.82))
+                    break
+
+    # --- 5. Advice/Tests (bonus) ---
+    advice_items = []
+    in_advice = False
+    for line in lines:
+        stripped = line.strip()
+        low = stripped.lower()
+        if "advice" in low or "test" in low:
+            in_advice = True
+            continue
+        if in_advice and stripped:
+            if re.match(r"^\s*follow|^\s*note|^\s*dr\.|^\s*signature", low):
+                break
+            if stripped.startswith("•") or stripped.startswith("-") or stripped.startswith("*") or re.match(r"^\s*[A-Z]", stripped):
+                advice_items.append(stripped.lstrip("•-* "))
+    if advice_items:
+        fields.append(("advice", "; ".join(advice_items)[:200], 0.85))
+
+    return fields
+
+
+def _extract_report_fields_from_text(ocr_text: str) -> Tuple[List[ReportValueItem], str]:
+    """
+    Heuristic extraction of lab report values from raw OCR text.
+    Looks for test names with numeric values, units, and reference ranges.
+    """
+    values = []
+    text_lower = ocr_text.lower()
+
+    # Common lab test patterns: "Test Name  Value  Unit  Reference Range"
+    test_patterns = [
+        r"((?:fasting|post\s*prandial|random)?\s*(?:blood\s+sugar|glucose|glu))\s*[:\-]?\s*(\d+\.?\d*)\s*(mg/dL|mmol/L)?",
+        r"(HbA1c|glycated?\s*hemoglobin)\s*[:\-]?\s*(\d+\.?\d*)\s*(%)?",
+        r"(total\s+cholesterol|cholesterol)\s*[:\-]?\s*(\d+\.?\d*)\s*(mg/dL)?",
+        r"(HDL|LDL|triglycerides?)\s*[:\-]?\s*(\d+\.?\d*)\s*(mg/dL)?",
+        r"(creatinine|blood\s+urea|BUN)\s*[:\-]?\s*(\d+\.?\d*)\s*(mg/dL)?",
+        r"(hemoglobin|Hb)\s*[:\-]?\s*(\d+\.?\d*)\s*(g/dL|g%|g/L)?",
+        r"(WBC|white\s+blood\s+cell|leukocyte)\s*[:\-]?\s*(\d+\.?\d*)\s*(×10[³3]|/mm3|K/µL|10\^3)?",
+        r"(platelet|PLT)\s*[:\-]?\s*(\d+\.?\d*)\s*(×10[³3]|/mm3|K/µL)?",
+        r"(TSH|thyroid\s+stimulating)\s*[:\-]?\s*(\d+\.?\d*)\s*(mIU/L|µIU/mL)?",
+        r"(ALT|SGPT|AST|SGOT)\s*[:\-]?\s*(\d+\.?\d*)\s*(U/L|IU/L)?",
+    ]
+
+    reference_ranges = {
+        "fasting blood sugar": "70 - 99 mg/dL",
+        "blood sugar": "70 - 99 mg/dL",
+        "glucose": "70 - 99 mg/dL",
+        "HbA1c": "4.0 - 5.6 %",
+        "total cholesterol": "< 200 mg/dL",
+        "HDL": "> 40 mg/dL",
+        "LDL": "< 100 mg/dL",
+        "triglycerides": "< 150 mg/dL",
+        "creatinine": "0.6 - 1.2 mg/dL",
+        "hemoglobin": "12.0 - 17.5 g/dL",
+        "Hb": "12.0 - 17.5 g/dL",
+        "WBC": "4,500 - 11,000 /mm3",
+        "platelet": "150,000 - 400,000 /mm3",
+        "TSH": "0.4 - 4.0 mIU/L",
+        "ALT": "7 - 56 U/L",
+        "AST": "10 - 40 U/L",
+        "SGPT": "7 - 56 U/L",
+        "SGOT": "10 - 40 U/L",
+    }
+
+    found_tests = set()
+    for pattern in test_patterns:
+        for m in re.finditer(pattern, ocr_text, re.IGNORECASE):
+            test_name = m.group(1).strip()
+            value = m.group(2).strip()
+            unit = m.group(3).strip() if m.group(3) else ""
+
+            test_key = test_name.lower().strip()
+            if test_key in found_tests:
+                continue
+            found_tests.add(test_key)
+
+            ref = ""
+            for rk, rv in reference_ranges.items():
+                if rk in test_key or test_key in rk:
+                    ref = rv
+                    break
+
+            flag = "normal"
+            try:
+                val_num = float(value)
+                if "glucose" in test_key or "sugar" in test_key or "blood sugar" in test_key:
+                    if val_num > 99:
+                        flag = "abnormal"
+                elif "hba1c" in test_key:
+                    if val_num > 5.6:
+                        flag = "abnormal"
+                elif "cholesterol" in test_key and "hdl" not in test_key and "ldl" not in test_key:
+                    if val_num > 200:
+                        flag = "abnormal"
+                elif "ldl" in test_key:
+                    if val_num > 100:
+                        flag = "abnormal"
+                elif "hdl" in test_key:
+                    if val_num < 40:
+                        flag = "abnormal"
+                elif "triglycerides" in test_key:
+                    if val_num > 150:
+                        flag = "abnormal"
+            except ValueError:
+                pass
+
+            values.append(ReportValueItem(
+                test_name=test_name,
+                value=value,
+                unit=unit if unit else None,
+                reference_range=ref if ref else None,
+                flag=flag,
+            ))
+
+    # Build summary
+    abnormal_vals = [v for v in values if v.flag == "abnormal"]
+    if abnormal_vals:
+        abnormal_names = ", ".join([f"{v.test_name} ({v.value} {v.unit or ''})".strip() for v in abnormal_vals])
+        summary = f"AI Diagnostic Summary: Abnormal values detected: {abnormal_names}. Please consult your physician for interpretation."
+    elif values:
+        summary = "AI Diagnostic Summary: All tested biomarker parameters fall within normal physiological reference ranges."
+    else:
+        summary = "AI Diagnostic Summary: No structured lab values could be extracted from the document. Please review manually."
+
+    return values, summary
+
+
 class OCRNLPEngine:
     @staticmethod
     def extract_prescription(
@@ -44,6 +361,13 @@ class OCRNLPEngine:
             if extracted_raw:
                 ocr_provider = ocr_p
                 nlp_provider = nlp_p
+
+        if not extracted_raw and image_bytes:
+            ocr_text = _tesseract_ocr(image_bytes)
+            if ocr_text:
+                extracted_raw = _extract_prescription_fields_from_text(ocr_text)
+                ocr_provider = "tesseract_local"
+                nlp_provider = "heuristic_regex"
 
         if not extracted_raw:
             extracted_raw = OCRNLPEngine._simulated_prescription_pipeline(simulate_low_confidence)
@@ -101,6 +425,12 @@ class OCRNLPEngine:
             )
             if values:
                 nlp_provider = "openai_gpt4o_live"
+
+        if not values and doc_bytes:
+            ocr_text = _tesseract_ocr(doc_bytes)
+            if ocr_text:
+                values, summary = _extract_report_fields_from_text(ocr_text)
+                nlp_provider = "tesseract_local"
 
         if not values:
             values, summary = OCRNLPEngine._simulated_report_pipeline(simulate_abnormal)

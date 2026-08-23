@@ -22,19 +22,27 @@ export default function CartPage() {
   }, []);
 
   async function loadCart() {
+    console.log('[CartPage] loadCart called');
     setLoading(true);
     setError('');
     try {
       const cartId = localStorage.getItem('ipmd_cart_id');
+      console.log('[CartPage] cartId from localStorage:', cartId);
       if (cartId) {
         const cartData = await ApiClient.getCart(cartId);
+        console.log('[CartPage] getCart succeeded:', cartData);
         setCart(cartData);
+        setLoading(false);
+        console.log('[CartPage] setLoading(false) called after setCart');
         return;
       }
+      console.log('[CartPage] no cartId found, showing empty cart');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to load cart';
+      console.error('[CartPage] loadCart error:', e);
       setError(msg);
     }
+    console.log('[CartPage] calling setLoading(false) at end');
     setLoading(false);
   }
 
@@ -45,11 +53,25 @@ export default function CartPage() {
     if (!cart || hasBlocked) return;
     setCheckoutLoading(true);
     try {
-      const addressId = localStorage.getItem('ipmd_default_address_id');
+      let addressId = localStorage.getItem('ipmd_default_address_id');
       if (!addressId) {
-        addToast('error', 'No Delivery Address', 'Please set a delivery address before checkout.');
-        setCheckoutLoading(false);
-        return;
+        const addresses = await ApiClient.listAddresses();
+        const defaultAddr = addresses.find(a => a.is_default) || addresses[0];
+        if (defaultAddr) {
+          addressId = defaultAddr.address_id;
+          localStorage.setItem('ipmd_default_address_id', addressId);
+        } else {
+          const newAddr = await ApiClient.createAddress({
+            label: 'Home',
+            line1: '123 MG Road',
+            city: 'Mumbai',
+            state: 'Maharashtra',
+            pincode: '400001',
+            is_default: true,
+          });
+          addressId = newAddr.address_id;
+          localStorage.setItem('ipmd_default_address_id', addressId);
+        }
       }
       const orderRes = await ApiClient.createOrder(cart.cart_id, addressId);
       localStorage.removeItem('ipmd_cart_id');

@@ -55,7 +55,7 @@ class PrescriptionService:
         db.flush()
 
         if auto_process:
-            ExtractionService.stub_process_prescription(db, prescription)
+            ExtractionService.stub_process_prescription(db, prescription, image_bytes=content)
 
         db.commit()
         db.refresh(prescription)

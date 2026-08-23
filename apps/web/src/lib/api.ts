@@ -3,7 +3,7 @@ import {
   PrescriptionUploadResponse, PrescriptionStatusResponse, PrescriptionDetail,
   PrescriptionListResponse, FieldEditResponse,
   MedicineSearchResponse, MedicineDetail,
-  CartCreateResponse, CartItemAddResponse, CartDetail,
+  CartCreateResponse, CartItemAddResponse, CartDetail, SavedAddress,
   OrderCreateResponse, OrderSummary, OrderDetail, OrderListResponse, OrderCancelResponse,
   VerificationQueueResponse, VerificationActionResponse,
   PaymentOrderCreateResponse, PaymentCaptureResponse,
@@ -173,6 +173,14 @@ export const ApiClient = {
     }),
   getCart: (cartId: string) =>
     apiRequest<CartDetail>(`/cart/${cartId}`),
+
+  // Addresses
+  listAddresses: () =>
+    apiRequest<SavedAddress[]>('/addresses'),
+  createAddress: (data: { label?: string; line1: string; line2?: string; city: string; state: string; pincode: string; is_default?: boolean }) =>
+    apiRequest<SavedAddress>('/addresses', {
+      method: 'POST', body: JSON.stringify(data),
+    }),
 
   // Orders
   createOrder: (cartId: string, deliveryAddressId: string) =>

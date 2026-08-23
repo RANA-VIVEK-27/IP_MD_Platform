@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session
 from app.db.session import engine
-from app.models.identity import User, DoctorLicense
+from app.models.identity import User, DoctorLicense, SavedAddress
 from app.services.auth_service import hash_password
 import uuid
 from datetime import datetime, timezone
@@ -116,6 +116,27 @@ def seed():
         created += 1
 
     db.commit()
+
+    # Seed default address for patient
+    patient = db.query(User).filter(User.email == "demo.patient@ipmd.in").first()
+    if patient:
+        existing_addr = db.query(SavedAddress).filter(SavedAddress.user_id == patient.user_id).first()
+        if not existing_addr:
+            addr = SavedAddress(
+                user_id=patient.user_id,
+                label="Home",
+                line1="123 MG Road, Bandra West",
+                city="Mumbai",
+                state="Maharashtra",
+                pincode="400050",
+                is_default=True,
+            )
+            db.add(addr)
+            db.commit()
+            print("  OK    default address seeded for demo.patient@ipmd.in")
+        else:
+            print("  SKIP  address already exists for demo.patient@ipmd.in")
+
     db.close()
     print(f"\nDone: {created} created, {skipped} skipped")
 

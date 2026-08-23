@@ -25,15 +25,19 @@ except ModuleNotFoundError:
     except ModuleNotFoundError:
         class OCRNLPEngine:
             @staticmethod
-            def extract_prescription(prescription_id, filename="prescription.jpg", simulate_low_confidence=False):
+            def extract_prescription(prescription_id, image_bytes=None, filename="prescription.jpg", simulate_low_confidence=False):
                 import httpx
+                import base64
                 ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8001")
+                payload = {
+                    "prescription_id": str(prescription_id),
+                    "filename": filename,
+                    "simulate_low_confidence": simulate_low_confidence
+                }
+                if image_bytes:
+                    payload["image_base64"] = base64.b64encode(image_bytes).decode("utf-8")
                 try:
-                    res = httpx.post(f"{ai_url}/api/v1/ai/extract-prescription", json={
-                        "prescription_id": str(prescription_id),
-                        "filename": filename,
-                        "simulate_low_confidence": simulate_low_confidence
-                    }, timeout=5.0)
+                    res = httpx.post(f"{ai_url}/api/v1/ai/extract-prescription", json=payload, timeout=30.0)
                     if res.status_code == 200:
                         data = res.json()
                         class AIRes:
@@ -73,15 +77,19 @@ except ModuleNotFoundError:
                 return r
 
             @staticmethod
-            def parse_report(report_id, filename="lab_report.pdf", simulate_abnormal=False):
+            def parse_report(report_id, doc_bytes=None, filename="lab_report.pdf", simulate_abnormal=False):
                 import httpx
+                import base64
                 ai_url = os.getenv("AI_SERVICE_URL", "http://ai:8001")
+                payload = {
+                    "report_id": str(report_id),
+                    "filename": filename,
+                    "simulate_abnormal": simulate_abnormal
+                }
+                if doc_bytes:
+                    payload["document_base64"] = base64.b64encode(doc_bytes).decode("utf-8")
                 try:
-                    res = httpx.post(f"{ai_url}/api/v1/ai/parse-report", json={
-                        "report_id": str(report_id),
-                        "filename": filename,
-                        "simulate_abnormal": simulate_abnormal
-                    }, timeout=5.0)
+                    res = httpx.post(f"{ai_url}/api/v1/ai/parse-report", json=payload, timeout=30.0)
                     if res.status_code == 200:
                         data = res.json()
                         class AIRes:
@@ -166,7 +174,8 @@ class ExtractionService:
     def process_prescription(
         db: Session,
         prescription: Prescription,
-        simulate_low_confidence: bool = False
+        simulate_low_confidence: bool = False,
+        image_bytes: bytes = None
     ) -> Prescription:
         """
         Real OCR + Medical Entity Extraction pipeline (Google Cloud Vision + OpenAI GPT-4o).
@@ -184,6 +193,7 @@ class ExtractionService:
 
         ai_res = OCRNLPEngine.extract_prescription(
             prescription_id=str(prescription.prescription_id),
+            image_bytes=image_bytes,
             simulate_low_confidence=simulate_low_confidence
         )
 
@@ -213,7 +223,8 @@ class ExtractionService:
     def process_report(
         db: Session,
         report: Report,
-        simulate_abnormal: bool = False
+        simulate_abnormal: bool = False,
+        doc_bytes: bytes = None
     ) -> Report:
         """
         Real Medical NLP pipeline for diagnostic report parsing.
@@ -229,6 +240,7 @@ class ExtractionService:
 
         ai_res = OCRNLPEngine.parse_report(
             report_id=str(report.report_id),
+            doc_bytes=doc_bytes,
             simulate_abnormal=simulate_abnormal
         )
 
@@ -254,14 +266,16 @@ class ExtractionService:
     def stub_process_prescription(
         db: Session,
         prescription: Prescription,
-        simulate_low_confidence: bool = False
+        simulate_low_confidence: bool = False,
+        image_bytes: bytes = None
     ) -> Prescription:
-        return ExtractionService.process_prescription(db, prescription, simulate_low_confidence=simulate_low_confidence)
+        return ExtractionService.process_prescription(db, prescription, simulate_low_confidence=simulate_low_confidence, image_bytes=image_bytes)
 
     @staticmethod
     def stub_process_report(
         db: Session,
         report: Report,
-        simulate_abnormal: bool = False
+        simulate_abnormal: bool = False,
+        doc_bytes: bytes = None
     ) -> Report:
-        return ExtractionService.process_report(db, report, simulate_abnormal=simulate_abnormal)
+        return ExtractionService.process_report(db, report, simulate_abnormal=simulate_abnormal, doc_bytes=doc_bytes)

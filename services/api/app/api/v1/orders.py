@@ -1,10 +1,11 @@
 import uuid
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, Header, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.identity import User
+from app.models.identity import User, SavedAddress
 from app.api.deps import get_current_user, require_roles
 from app.services.order_service import OrderService
 from app.schemas.orders import (
@@ -24,6 +25,29 @@ from app.schemas.orders import (
     DisputeResponse,
     FulfillmentRecordResponse,
 )
+
+
+# --- Saved Address Schemas ---
+
+class SavedAddressCreateRequest(BaseModel):
+    label: Optional[str] = Field(None, max_length=50)
+    line1: str = Field(..., min_length=1, max_length=255)
+    line2: Optional[str] = Field(None, max_length=255)
+    city: str = Field(..., min_length=1, max_length=100)
+    state: str = Field(..., min_length=1, max_length=100)
+    pincode: str = Field(..., min_length=1, max_length=10)
+    is_default: bool = False
+
+
+class SavedAddressResponse(BaseModel):
+    address_id: uuid.UUID
+    label: Optional[str] = None
+    line1: str
+    line2: Optional[str] = None
+    city: str
+    state: str
+    pincode: str
+    is_default: bool
 
 router = APIRouter(tags=["Orders & Fulfillment"])
 
@@ -95,6 +119,54 @@ def get_cart(
         cart_id=cart_id,
         user_role=current_user.role
     )
+
+
+# --- Saved Address Endpoints ---
+
+@router.get(
+    "/addresses",
+    response_model=List[SavedAddressResponse]
+)
+def list_addresses(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Returns all saved addresses for the current user."""
+    addrs = db.query(SavedAddress).filter(SavedAddress.user_id == current_user.user_id).all()
+    return addrs
+
+
+@router.post(
+    "/addresses",
+    response_model=SavedAddressResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def create_address(
+    req: SavedAddressCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("patient"))
+):
+    """Creates a new saved address for the current user."""
+    if req.is_default:
+        db.query(SavedAddress).filter(
+            SavedAddress.user_id == current_user.user_id,
+            SavedAddress.is_default == True
+        ).update({"is_default": False})
+
+    addr = SavedAddress(
+        user_id=current_user.user_id,
+        label=req.label,
+        line1=req.line1,
+        line2=req.line2,
+        city=req.city,
+        state=req.state,
+        pincode=req.pincode,
+        is_default=req.is_default,
+    )
+    db.add(addr)
+    db.commit()
+    db.refresh(addr)
+    return addr
 
 
 # --- Order Endpoints ---

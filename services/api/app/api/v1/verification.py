@@ -75,9 +75,8 @@ def approve_prescription(
             related_entity_type="prescription",
             related_entity_id=prescription_id,
         )
-        db.commit()
     except Exception:
-        pass  # Notification failure should not block the main flow
+        db.rollback()
 
     return VerificationActionResponse(
         prescription_id=prescription.prescription_id,
@@ -114,9 +113,8 @@ def reject_prescription(
             related_entity_type="prescription",
             related_entity_id=prescription_id,
         )
-        db.commit()
     except Exception:
-        pass  # Notification failure should not block the main flow
+        db.rollback()
 
     return VerificationActionResponse(
         prescription_id=prescription.prescription_id,

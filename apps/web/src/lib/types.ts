@@ -140,6 +140,17 @@ export interface CartDetail {
   has_blocked_items: boolean;
 }
 
+export interface SavedAddress {
+  address_id: string;
+  label?: string | null;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  state: string;
+  pincode: string;
+  is_default: boolean;
+}
+
 export interface CartCreateResponse {
   cart_id: string;
   patient_id: string;

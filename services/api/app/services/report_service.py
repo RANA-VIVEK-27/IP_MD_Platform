@@ -53,7 +53,7 @@ class ReportService:
         db.flush()
 
         if auto_process:
-            ExtractionService.stub_process_report(db, report, simulate_abnormal=simulate_abnormal)
+            ExtractionService.stub_process_report(db, report, simulate_abnormal=simulate_abnormal, doc_bytes=content)
 
         db.commit()
         db.refresh(report)

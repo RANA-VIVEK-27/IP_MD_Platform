@@ -35,7 +35,7 @@ async def upload_document(
     file: UploadFile = File(..., description="Document file (JPG, PNG, PDF, max 20MB)"),
     doc_type: str = Form("documents", description="Document category: documents, prescriptions, reports"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("patient", "doctor", "admin", "super_admin")),
+    current_user: User = Depends(require_roles("patient", "doctor", "admin", "user_admin", "super_admin")),
 ):
     content = await file.read()
 

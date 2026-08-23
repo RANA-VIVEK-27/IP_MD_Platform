@@ -2,7 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir fastapi uvicorn pydantic python-dotenv httpx
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    libglib2.0-0 \
+    libjpeg62-turbo \
+    zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir fastapi uvicorn pydantic python-dotenv httpx pytesseract Pillow
 
 COPY . .
 
