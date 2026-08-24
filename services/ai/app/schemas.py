@@ -53,9 +53,11 @@ class ReportParseResponse(BaseModel):
 class ChatCompletionRequest(BaseModel):
     session_id: str
     message_text: str
+    document_type: Optional[str] = None
     context_prescription_id: Optional[str] = None
     is_first_message: bool = False
     rag_context: List[str] = []
+    pharmacy_price_context: List[str] = []
 
 
 class ChatCompletionResponse(BaseModel):
@@ -63,4 +65,4 @@ class ChatCompletionResponse(BaseModel):
     reply_text: str
     is_ai_generated: bool = True
     guardrail_triggered: bool = False
-    llm_provider: str = "google_gemini_1.5"
+    llm_provider: str = "google_genai_gemini_2.5_flash"

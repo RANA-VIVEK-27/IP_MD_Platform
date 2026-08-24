@@ -5,6 +5,12 @@ import httpx
 from typing import List
 from .schemas import ChatCompletionResponse
 
+try:
+    from google import genai
+    GENAI_SDK_AVAILABLE = True
+except ImportError:
+    GENAI_SDK_AVAILABLE = False
+
 NON_DIAGNOSTIC_DISCLAIMER = (
     "⚠️ MEDICAL DISCLAIMER: I am an AI Health Assistant and not a licensed medical professional. "
     "My responses are for informational and educational purposes only, and do not constitute formal medical diagnosis, "
@@ -29,15 +35,17 @@ class GeminiChatEngine:
     def process_chat_message(
         session_id: str,
         message_text: str,
+        document_type: str = None,
         is_first_message: bool = False,
-        rag_context: List[str] = None
+        rag_context: List[str] = None,
+        pharmacy_price_context: List[str] = None
     ) -> ChatCompletionResponse:
         """
-        Executes Google Gemini 1.5 chat completion with:
+        Executes Google Gemini 2.5 Flash chat completion with:
         1. Red-flag emergency symptom detection -> escalates immediately to emergency notice.
-        2. RAG grounding context insertion.
-        3. First-turn non-diagnostic mandatory disclaimer.
-        4. Live Gemini 1.5 API call when GEMINI_API_KEY is configured.
+        2. Document-type scoping & RAG grounding context insertion.
+        3. Best-price pharmacy medicine price recommendation integration.
+        4. google-genai SDK call (gemini-2.5-flash) with fallback.
         """
         lowered = message_text.lower()
         emergency_triggered = any(kw in lowered for kw in EMERGENCY_KEYWORDS)
@@ -52,41 +60,56 @@ class GeminiChatEngine:
                 reply_text=reply,
                 is_ai_generated=True,
                 guardrail_triggered=True,
-                llm_provider="google_gemini_1.5_guardrail",
+                llm_provider="google_genai_gemini_2.5_flash_guardrail",
             )
 
         gemini_key = os.getenv("GEMINI_API_KEY")
 
+        doc_scope_str = f"\n[Active Document Type Scope: {document_type.upper()}]" if document_type else ""
+
         context_str = ""
         if rag_context:
-            context_str = "\n\nClinical Knowledge Base Grounding Context:\n" + "\n".join(f"- {c}" for c in rag_context)
+            context_str += "\n\nClinical Document Grounding Context:\n" + "\n".join(f"- {c}" for c in rag_context)
+
+        if pharmacy_price_context:
+            context_str += "\n\nPharmacy Best Price Data:\n" + "\n".join(f"- {p}" for p in pharmacy_price_context)
 
         live_reply = None
-        llm_provider = "google_gemini_1.5_flash_simulated"
+        llm_provider = "google_genai_gemini_2.5_flash_simulated"
 
-        if gemini_key and len(gemini_key.strip()) > 5:
+        system_prompt = (
+            "You are Dr. AI — Senior Virtual Doctor & Health Guide for the IPMD Platform. "
+            "Your role is to guide the patient empathetically and accurately on WHAT IS HAPPENING IN THEIR BODY based on their uploaded document context:\n"
+            "- PRESCRIPTION SCOPE: Explain what condition is being treated, how each prescribed medicine acts inside the body, dosage timings, potential side effects, and precautions.\n"
+            "- LAB REPORT SCOPE: Translate blood/lab metrics (e.g. Fasting Glucose, HbA1c, Cholesterol, Hemoglobin, Kidney/Liver parameters) into plain-language organ health explanations. Explain what normal vs abnormal values mean for their body health and provide supportive doctor lifestyle guidance.\n"
+            "- GENERAL REPORT SCOPE: Provide a clear doctor's summary of diagnostic findings, bodily health status, and actionable recommendations.\n"
+            "If pharmacy pricing data is available, highlight best prices and generic savings clearly. "
+            "Always include appropriate professional guidance while delivering empathetic, doctor-quality explanations."
+        )
+        user_prompt = f"{system_prompt}{doc_scope_str}{context_str}\n\nPatient Query: {message_text}"
+
+        # 1. Try google.genai official SDK with gemini-2.5-flash
+        if GENAI_SDK_AVAILABLE and gemini_key and len(gemini_key.strip()) > 5:
             try:
-                system_prompt = (
-                    "You are an empathetic, accurate AI Health Assistant for the IPMD Platform. "
-                    "Provide clear, professional health informational guidance. "
-                    "Always emphasize consulting a doctor for diagnoses or prescription modifications."
+                client = genai.Client()
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=user_prompt,
                 )
-                user_prompt = f"{system_prompt}{context_str}\n\nPatient Query: {message_text}"
+                if response and response.text:
+                    live_reply = response.text.strip()
+                    llm_provider = "google_genai_gemini_2.5_flash_live"
+            except Exception as e:
+                print(f"[Google GenAI SDK Error]: {e}")
 
+        # 2. Fallback to HTTP REST endpoint if SDK call fails or unavailable
+        if not live_reply and gemini_key and len(gemini_key.strip()) > 5:
+            try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key.strip()}"
                 payload = {
-                    "contents": [
-                        {
-                            "role": "user",
-                            "parts": [{"text": user_prompt}]
-                        }
-                    ],
-                    "generationConfig": {
-                        "temperature": 0.3,
-                        "maxOutputTokens": 1000
-                    }
+                    "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+                    "generationConfig": {"temperature": 0.3, "maxOutputTokens": 1000}
                 }
-
                 with httpx.Client(timeout=15.0) as client:
                     resp = client.post(url, json=payload)
                     if resp.status_code == 200:
@@ -96,16 +119,16 @@ class GeminiChatEngine:
                             parts = candidates[0]["content"].get("parts", [])
                             if parts and "text" in parts[0]:
                                 live_reply = parts[0]["text"].strip()
-                                llm_provider = "google_gemini_1.5_flash_live"
+                                llm_provider = "google_gemini_rest_live"
             except Exception as e:
-                # Log error and fall back gracefully
-                print(f"[Gemini API Error]: {e}")
+                print(f"[Gemini REST API Error]: {e}")
 
         if not live_reply:
             main_body = (
-                f"Thank you for your health inquiry regarding '{message_text[:60]}...'. "
-                f"Prescribed medications should be taken strictly as directed by your physician. "
-                f"Always review dosage guidelines, potential interactions, and side effects before usage.{context_str}"
+                f"🩺 **Doctor's Body Health Guidance**:\n"
+                f"Regarding your query on '{message_text[:60]}...':\n"
+                f"Based on your document context, prescribed medications work targetedly to regulate physiological systems. "
+                f"Be sure to follow dosage schedules strictly. Review side effects and consult your doctor for any changes.{context_str}"
             )
         else:
             main_body = live_reply

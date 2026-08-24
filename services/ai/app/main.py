@@ -117,8 +117,10 @@ async def chat_completion(req: ChatCompletionRequest):
         res = GeminiChatEngine.process_chat_message(
             session_id=req.session_id,
             message_text=req.message_text,
+            document_type=req.document_type,
             is_first_message=req.is_first_message,
             rag_context=req.rag_context,
+            pharmacy_price_context=req.pharmacy_price_context,
         )
         return res
     except Exception as e:

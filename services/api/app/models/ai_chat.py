@@ -18,7 +18,10 @@ class ChatSession(Base):
 
     session_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
     patient_id = Column(UUID(as_uuid=True), ForeignKey('users.user_id'), nullable=False)
+    document_type = Column(String(50), nullable=True) # prescription, lab_report, general_report
     context_prescription_id = Column(UUID(as_uuid=True), ForeignKey('prescriptions.prescription_id'), nullable=True)
+    context_document_id = Column(UUID(as_uuid=True), ForeignKey('documents.document_id'), nullable=True)
+    context_report_id = Column(UUID(as_uuid=True), ForeignKey('reports.report_id'), nullable=True)
     consent_record_id = Column(UUID(as_uuid=True), ForeignKey('consent_records.consent_id'), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False)
     purged_at = Column(TIMESTAMP(timezone=True), nullable=True)

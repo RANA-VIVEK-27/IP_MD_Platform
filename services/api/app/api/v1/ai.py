@@ -57,7 +57,7 @@ def create_chat_session(
     current_user: User = Depends(require_roles("patient"))
 ):
     """
-    Creates a new AI health chat session linked to optional prescription context (BRD FR-11).
+    Creates a new AI health chat session linked to document scope & context (BRD FR-11).
     """
     if not req.consent_given:
         raise HTTPException(
@@ -70,9 +70,56 @@ def create_chat_session(
     session = AIService.create_chat_session(
         db=db,
         patient_id=current_user.user_id,
-        context_prescription_id=req.context_prescription_id
+        document_type=req.document_type,
+        context_prescription_id=req.context_prescription_id,
+        context_document_id=req.context_document_id,
+        context_report_id=req.context_report_id
     )
     return session
+
+
+@router.get(
+    "/documents",
+    status_code=status.HTTP_200_OK
+)
+def get_patient_documents_for_chat(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("patient"))
+):
+    """
+    Retrieves uploaded user documents grouped by type (Prescriptions, Lab Reports, General Reports) for AI Chat scope selection.
+    """
+    from app.models.prescription_report import Prescription, Report, Document
+    prescriptions = db.query(Prescription).filter(Prescription.patient_id == current_user.user_id).all()
+    reports = db.query(Report).filter(Report.patient_id == current_user.user_id).all()
+    documents = db.query(Document).filter(Document.uploaded_by == current_user.user_id).all()
+
+    return {
+        "prescriptions": [
+            {
+                "id": str(p.prescription_id),
+                "title": f"Prescription #{str(p.prescription_id)[:8]}",
+                "status": p.extraction_status,
+                "created_at": p.created_at.isoformat()
+            } for p in prescriptions
+        ],
+        "lab_reports": [
+            {
+                "id": str(r.report_id),
+                "title": f"Lab Report ({r.report_type or 'Diagnostic'}) #{str(r.report_id)[:8]}",
+                "status": r.extraction_status,
+                "created_at": r.created_at.isoformat()
+            } for r in reports
+        ],
+        "general_reports": [
+            {
+                "id": str(d.document_id),
+                "title": d.original_filename,
+                "status": d.doc_status,
+                "created_at": d.uploaded_at.isoformat()
+            } for d in documents
+        ]
+    }
 
 
 @router.post(

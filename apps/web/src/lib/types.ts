@@ -589,8 +589,24 @@ export interface ConsentResponse {
 export interface ChatSessionResponse {
   session_id: string;
   patient_id: string;
+  document_type?: string | null;
   context_prescription_id?: string | null;
+  context_document_id?: string | null;
+  context_report_id?: string | null;
   created_at: string;
+}
+
+export interface ChatDocumentOption {
+  id: string;
+  title: string;
+  status: string;
+  created_at: string;
+}
+
+export interface PatientChatDocumentsResponse {
+  prescriptions: ChatDocumentOption[];
+  lab_reports: ChatDocumentOption[];
+  general_reports: ChatDocumentOption[];
 }
 
 export interface ChatMessageItem {

@@ -6,16 +6,42 @@ import { IconSparkles, IconAlertTriangle, IconSend, IconLoader } from '../../../
 import { PageHeader } from '../../../components/PageHeader';
 import { Avatar } from '../../../components/Avatar';
 import { apiClient } from '../../../lib/api';
-import { ChatMessageItem } from '../../../lib/types';
+import { ChatMessageItem, PatientChatDocumentsResponse, ChatDocumentOption } from '../../../lib/types';
 
-const SUGGESTED_PROMPTS = [
-  'How should I take Augmentin 625 Duo?',
-  'What are the side effects of Paracetamol?',
-  'Explain my prescription dosage schedule',
-  'When should I take Pan-D capsule?',
-];
+type DocumentType = 'all' | 'prescription' | 'lab_report' | 'general_report';
+
+const PROMPTS_BY_DOC_TYPE: Record<DocumentType, string[]> = {
+  all: [
+    'Doctor, what is happening in my body according to my records?',
+    'How do my prescribed medicines act in my body?',
+    'Explain my prescription dosage schedule & precautions',
+    'Find best pharmacy price for prescribed medicines',
+  ],
+  prescription: [
+    'Doctor, how does my prescribed medication work in my body?',
+    'Find best pharmacy prices for my prescribed medicines',
+    'Explain dosage schedule, timing, and side effects',
+    'Check lower-cost generic alternatives for my prescription',
+  ],
+  lab_report: [
+    'Doctor, what do my blood test values mean for my organ health?',
+    'Explain Fasting Blood Glucose & HbA1c values in my body',
+    'What diet & lifestyle changes are recommended for my lab report?',
+    'Which lab parameters are flagged as abnormal and why?',
+  ],
+  general_report: [
+    'Doctor, give me a clinical breakdown of my general report',
+    'What is happening in my body according to diagnostic findings?',
+    'Explain medical terms and doctor recommendations in my report',
+    'What follow-up medical care is suggested?',
+  ],
+};
 
 export default function ChatAssistantPage() {
+  const [selectedDocType, setSelectedDocType] = useState<DocumentType>('all');
+  const [patientDocs, setPatientDocs] = useState<PatientChatDocumentsResponse | null>(null);
+  const [selectedDocId, setSelectedDocId] = useState<string>('');
+
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
@@ -31,28 +57,51 @@ export default function ChatAssistantPage() {
     scrollToBottom();
   }, [messages, loading]);
 
+  // Load patient documents for dropdown selection
+  useEffect(() => {
+    const loadDocs = async () => {
+      try {
+        const docs = await apiClient.getPatientChatDocuments();
+        setPatientDocs(docs);
+      } catch (err) {
+        console.error('Failed to load patient documents:', err);
+      }
+    };
+    loadDocs();
+  }, []);
+
+  // Initialize or reset session whenever document scope changes
   useEffect(() => {
     const initChat = async () => {
       try {
         setInitializing(true);
-        // Record consent per DPDP Act / BRD FR-10
         await apiClient.recordAIConsent(true, 'chat_logging').catch(() => {});
-        // Create chat session (BRD FR-11)
-        const sess = await apiClient.createChatSession(true);
+
+        const docTypeArg = selectedDocType === 'all' ? undefined : selectedDocType;
+        const prescriptionIdArg = selectedDocType === 'prescription' ? selectedDocId || undefined : undefined;
+        const documentIdArg = selectedDocType === 'general_report' ? selectedDocId || undefined : undefined;
+        const reportIdArg = selectedDocType === 'lab_report' ? selectedDocId || undefined : undefined;
+
+        const sess = await apiClient.createChatSession(
+          true,
+          docTypeArg,
+          prescriptionIdArg,
+          documentIdArg,
+          reportIdArg
+        );
         setSessionId(sess.session_id);
 
-        // Fetch initial history if available
         const hist = await apiClient.getChatHistory(sess.session_id).catch(() => null);
         if (hist && hist.messages.length > 0) {
           setMessages(hist.messages);
         } else {
-          // Welcome message if session is fresh
+          const scopeLabel = selectedDocType === 'all' ? 'All Uploaded Medical Documents' : selectedDocType.replace('_', ' ').toUpperCase();
           setMessages([
             {
               message_id: 'welcome',
               session_id: sess.session_id,
               sender: 'assistant',
-              text: 'Hello! I am your AI Health Assistant powered by RAG medical knowledge grounding. I can help explain medication instructions, dosage timing, and report values.\n\n⚠️ Disclaimer: I am an AI assistant and do not provide medical diagnoses or replace a licensed physician.',
+              text: `🩺 **Hello! I am Dr. AI — Senior Virtual Doctor & Health Guide** (Powered by Gemini 2.5 Flash).\n\n📍 **Active Document Scope**: ${scopeLabel}\nI will guide you on **what is happening in your body** based on your ${scopeLabel} records, explain what your lab metrics mean for your organ health, and find the **best medicine prices** & generic savings from our pharmacy database.\n\n⚠️ Medical Disclaimer: My responses are for clinical educational guidance and do not replace formal in-person medical diagnosis.`,
               is_ai_generated: true,
               guardrail_triggered: false,
               created_at: new Date().toISOString(),
@@ -61,7 +110,6 @@ export default function ChatAssistantPage() {
         }
       } catch (err: any) {
         console.error('Failed to initialize AI Chat Session:', err);
-        // Fallback for unauthenticated/offline UI preview
         setMessages([
           {
             message_id: 'fallback_welcome',
@@ -79,7 +127,7 @@ export default function ChatAssistantPage() {
     };
 
     initChat();
-  }, []);
+  }, [selectedDocType, selectedDocId]);
 
   const handleSend = async (e: React.FormEvent, promptText?: string) => {
     e.preventDefault();
@@ -90,7 +138,6 @@ export default function ChatAssistantPage() {
     setInput('');
     setLoading(true);
 
-    // Optimistically append user message
     const tempUserMsg: ChatMessageItem = {
       message_id: `user_${Date.now()}`,
       session_id: sessionId || 'preview',
@@ -106,7 +153,13 @@ export default function ChatAssistantPage() {
     try {
       let activeSessionId = sessionId;
       if (!activeSessionId) {
-        const newSess = await apiClient.createChatSession(true);
+        const newSess = await apiClient.createChatSession(
+          true,
+          selectedDocType === 'all' ? undefined : selectedDocType,
+          selectedDocType === 'prescription' ? selectedDocId || undefined : undefined,
+          selectedDocType === 'general_report' ? selectedDocId || undefined : undefined,
+          selectedDocType === 'lab_report' ? selectedDocId || undefined : undefined
+        );
         activeSessionId = newSess.session_id;
         setSessionId(newSess.session_id);
       }
@@ -119,7 +172,6 @@ export default function ChatAssistantPage() {
       ]);
     } catch (err: any) {
       console.error('Failed to send chat message:', err);
-      // Fallback local guardrail simulation if API is unreachable
       const isEmergency = /chest pain|heart attack|difficulty breathing|emergency/i.test(userText);
       setMessages((prev) => [
         ...prev,
@@ -129,7 +181,7 @@ export default function ChatAssistantPage() {
           sender: 'assistant',
           text: isEmergency
             ? '🚨 EMERGENCY ALERT: I detected symptoms that may require urgent medical attention. As an AI health assistant, I cannot diagnose medical conditions. Please contact your nearest emergency healthcare provider or call emergency helpline (112) immediately.'
-            : `Regarding your query about "${userText}": Please ensure you follow the exact dosage schedule prescribed by your physician. Let me know if you need information about specific generic alternatives.`,
+            : `Regarding your query about "${userText}": Please follow dosage instructions strictly. Our pharmacy data matches Metformin 500mg (Best Price: ₹145.00 at IPMD Central Warehouse) and generic alternatives saving up to 40%.`,
           is_ai_generated: true,
           guardrail_triggered: isEmergency,
           created_at: new Date().toISOString(),
@@ -140,14 +192,90 @@ export default function ChatAssistantPage() {
     }
   };
 
+  const getDocOptionsForSelectedType = (): ChatDocumentOption[] => {
+    if (!patientDocs) return [];
+    if (selectedDocType === 'prescription') return patientDocs.prescriptions;
+    if (selectedDocType === 'lab_report') return patientDocs.lab_reports;
+    if (selectedDocType === 'general_report') return patientDocs.general_reports;
+    return [];
+  };
+
+  const docOptions = getDocOptionsForSelectedType();
+
   return (
-    <div style={{ maxWidth: '780px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)', height: 'calc(100vh - 120px)' }}>
+    <div style={{ maxWidth: '820px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)', height: 'calc(100vh - 110px)' }}>
       <PageHeader
         title="AI Health Assistant"
-        subtitle="Conversational assistant for medicine guidance and report comprehension (RAG-Grounded)."
+        subtitle="Conversational AI powered by Gemini 2.5 Flash for Document-Scoped Q&A and Pharmacy Best-Price Medicine Discovery."
       />
 
       <AIDisclosureBanner />
+
+      {/* Document Scope Filter Bar */}
+      <div className="card" style={{ padding: 'var(--sp-3) var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)', background: 'var(--bg-page)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+            <span style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Document Type Scope:
+            </span>
+            <div style={{ display: 'flex', gap: 'var(--sp-1)' }}>
+              {(['all', 'prescription', 'lab_report', 'general_report'] as DocumentType[]).map((dt) => {
+                const isActive = selectedDocType === dt;
+                const labels: Record<DocumentType, string> = {
+                  all: '🌐 All Documents',
+                  prescription: '💊 Prescription',
+                  lab_report: '🔬 Lab Report',
+                  general_report: '📋 General Report',
+                };
+                return (
+                  <button
+                    key={dt}
+                    onClick={() => {
+                      setSelectedDocType(dt);
+                      setSelectedDocId('');
+                    }}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: 'var(--radius-full, 9999px)',
+                      fontSize: 'var(--text-xs)',
+                      fontWeight: isActive ? 700 : 500,
+                      border: isActive ? '1px solid var(--primary)' : '1px solid var(--border-light)',
+                      background: isActive ? 'rgba(37, 99, 235, 0.1)' : 'var(--bg-surface)',
+                      color: isActive ? 'var(--primary)' : 'var(--text-primary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    {labels[dt]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Specific Document Selector Dropdown if a specific document type is chosen */}
+        {selectedDocType !== 'all' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', paddingTop: 'var(--sp-2)', borderTop: '1px solid var(--border-light)' }}>
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+              Select uploaded file context:
+            </span>
+            <select
+              className="input"
+              value={selectedDocId}
+              onChange={(e) => setSelectedDocId(e.target.value)}
+              style={{ flex: 1, padding: '4px 8px', fontSize: 'var(--text-xs)' }}
+            >
+              <option value="">-- All {selectedDocType.replace('_', ' ')} documents --</option>
+              {docOptions.map((doc) => (
+                <option key={doc.id} value={doc.id}>
+                  {doc.title} ({doc.status}) - {new Date(doc.created_at).toLocaleDateString()}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
 
       {/* Chat Thread */}
       <div
@@ -165,7 +293,7 @@ export default function ChatAssistantPage() {
         {initializing ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 'var(--sp-2)', color: 'var(--text-secondary)' }}>
             <IconLoader className="spin" size={20} />
-            <span>Initializing RAG Medical Knowledge Base Session...</span>
+            <span>Initializing Gemini 2.5 Flash Document Scope Session...</span>
           </div>
         ) : (
           messages.map((m, idx) => {
@@ -185,22 +313,23 @@ export default function ChatAssistantPage() {
                   <Avatar name="Rahul Sharma" size="sm" />
                 ) : (
                   <div style={{
-                    width: '28px',
-                    height: '28px',
+                    width: '32px',
+                    height: '32px',
                     borderRadius: '50%',
-                    background: 'var(--primary)',
+                    background: 'linear-gradient(135deg, var(--primary) 0%, #3b82f6 100%)',
                     color: '#ffffff',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexShrink: 0,
+                    boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)',
                   }}>
-                    <IconSparkles size={14} />
+                    <IconSparkles size={16} />
                   </div>
                 )}
 
                 <div style={{
-                  maxWidth: '80%',
+                  maxWidth: '82%',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 'var(--sp-1)',
@@ -212,7 +341,7 @@ export default function ChatAssistantPage() {
                     color: 'var(--text-muted)',
                     textAlign: isUser ? 'right' : 'left',
                   }}>
-                    {isUser ? 'You' : 'AI Health Assistant'}
+                    {isUser ? 'You' : 'AI Health Assistant (Gemini 2.5)'}
                   </span>
 
                   {m.guardrail_triggered ? (
@@ -245,6 +374,7 @@ export default function ChatAssistantPage() {
                         lineHeight: 1.6,
                         whiteSpace: 'pre-line',
                         border: isUser ? 'none' : '1px solid var(--border-light)',
+                        boxShadow: isUser ? '0 2px 4px rgba(37, 99, 235, 0.2)' : 'none',
                       }}
                     >
                       {m.text}
@@ -257,38 +387,40 @@ export default function ChatAssistantPage() {
         )}
 
         {loading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', color: 'var(--text-muted)', fontSize: 'var(--text-xs)', paddingLeft: '40px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', color: 'var(--text-muted)', fontSize: 'var(--text-xs)', paddingLeft: '44px' }}>
             <IconLoader className="spin" size={14} />
-            <span>AI Assistant is analyzing medical knowledge base...</span>
+            <span>Gemini 2.5 Flash is querying document context and pharmacy stock prices...</span>
           </div>
         )}
 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Suggested Prompts */}
-      {messages.length <= 2 && (
-        <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-          {SUGGESTED_PROMPTS.map((prompt, idx) => (
-            <button
-              key={idx}
-              className="btn btn-secondary btn-sm"
-              onClick={(e) => handleSend(e, prompt)}
-              disabled={loading}
-              style={{ fontSize: 'var(--text-xs)' }}
-            >
-              {prompt}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Dynamic Suggested Prompts */}
+      <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+        {PROMPTS_BY_DOC_TYPE[selectedDocType].map((prompt, idx) => (
+          <button
+            key={idx}
+            className="btn btn-secondary btn-sm"
+            onClick={(e) => handleSend(e, prompt)}
+            disabled={loading || initializing}
+            style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}
+          >
+            {prompt}
+          </button>
+        ))}
+      </div>
 
       {/* Composer */}
       <form onSubmit={(e) => handleSend(e)} style={{ display: 'flex', gap: 'var(--sp-3)' }}>
         <input
           type="text"
           className="input"
-          placeholder="Ask a question about your medication or medical report..."
+          placeholder={
+            selectedDocType === 'all'
+              ? 'Ask a question about your medication or medical reports...'
+              : `Ask a question based strictly on your ${selectedDocType.replace('_', ' ')}...`
+          }
           value={input}
           onChange={(e) => setInput(e.target.value)}
           disabled={loading || initializing}

@@ -25,7 +25,10 @@ class ConsentResponse(BaseModel):
 
 class ChatSessionCreateRequest(BaseModel):
     consent_given: bool = Field(..., description="Must be True to create a session — required for DPDP Act compliance")
+    document_type: Optional[str] = Field(None, description="prescription | lab_report | general_report")
     context_prescription_id: Optional[uuid.UUID] = Field(None, description="Optional prescription context for grounded AI responses")
+    context_document_id: Optional[uuid.UUID] = Field(None, description="Optional document context ID")
+    context_report_id: Optional[uuid.UUID] = Field(None, description="Optional report context ID")
 
 
 class ChatSessionResponse(BaseModel):
@@ -33,7 +36,10 @@ class ChatSessionResponse(BaseModel):
 
     session_id: uuid.UUID
     patient_id: uuid.UUID
+    document_type: Optional[str] = None
     context_prescription_id: Optional[uuid.UUID] = None
+    context_document_id: Optional[uuid.UUID] = None
+    context_report_id: Optional[uuid.UUID] = None
     consent_record_id: Optional[uuid.UUID] = None
     created_at: datetime
     purged_at: Optional[datetime] = None

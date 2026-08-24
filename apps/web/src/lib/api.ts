@@ -308,11 +308,25 @@ export const ApiClient = {
       method: 'POST',
       body: JSON.stringify({ consent_given: consentGiven, consent_type: consentType }),
     }),
-  createChatSession: (consentGiven: boolean = true, contextPrescriptionId?: string) =>
+  createChatSession: (
+    consentGiven: boolean = true,
+    documentType?: string,
+    contextPrescriptionId?: string,
+    contextDocumentId?: string,
+    contextReportId?: string
+  ) =>
     apiRequest<ChatSessionResponse>('/ai/chat/sessions', {
       method: 'POST',
-      body: JSON.stringify({ consent_given: consentGiven, context_prescription_id: contextPrescriptionId || null }),
+      body: JSON.stringify({
+        consent_given: consentGiven,
+        document_type: documentType || null,
+        context_prescription_id: contextPrescriptionId || null,
+        context_document_id: contextDocumentId || null,
+        context_report_id: contextReportId || null,
+      }),
     }),
+  getPatientChatDocuments: () =>
+    apiRequest<PatientChatDocumentsResponse>('/ai/documents'),
   sendChatMessage: (sessionId: string, text: string) =>
     apiRequest<ChatTurnResponse>(`/ai/chat/sessions/${sessionId}/messages`, {
       method: 'POST',

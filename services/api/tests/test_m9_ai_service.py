@@ -86,13 +86,27 @@ def test_create_chat_session_success(unique_patient):
     """Verifies successful creation of chat session after consent (BRD FR-11)."""
     res = client.post(
         "/api/v1/ai/chat/sessions",
-        json={"consent_given": True},
+        json={"consent_given": True, "document_type": "prescription"},
         headers=unique_patient["headers"]
     )
     assert res.status_code == 201
     data = res.json()
     assert "session_id" in data
     assert data["patient_id"] == unique_patient["user_id"]
+    assert data["document_type"] == "prescription"
+
+
+def test_get_patient_chat_documents(unique_patient):
+    """Verifies listing uploaded documents for AI Chat scope selection."""
+    res = client.get(
+        "/api/v1/ai/documents",
+        headers=unique_patient["headers"]
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert "prescriptions" in data
+    assert "lab_reports" in data
+    assert "general_reports" in data
 
 
 def test_chat_message_turn_disclaimer_and_rag(unique_patient):
