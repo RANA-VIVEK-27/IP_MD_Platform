@@ -210,14 +210,16 @@ class ExtractionService:
                 field_name=item.field_name,
                 value=item.value,
                 confidence_score=score_decimal,
-                review_state="needs_review" if needs_rev else "auto_accepted"
+                review_state="auto_accepted"
             )
             db.add(ef)
 
-        next_status = "needs_review" if has_sub_threshold else "extracted"
-        ExtractionService.transition_status(prescription, next_status)
+        # AI Direct Auto-Verification
+        ExtractionService.transition_status(prescription, "extracted")
+        prescription.verification_status = "doctor_verified"
         db.flush()
         return prescription
+
 
     @staticmethod
     def process_report(

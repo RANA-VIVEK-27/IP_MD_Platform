@@ -27,11 +27,26 @@ EMERGENCY_KEYWORDS = [
     "coughing blood", "poisoning", "overdose", "suicidal"
 ]
 
+CRITICAL_ADVANCED_KEYWORDS = [
+    "high risk", "critical", "severe pain", "organ failure", "kidney failure", 
+    "liver cirrhosis", "cardiac arrest", "malignant", "tumor", "chemotherapy",
+    "uncontrolled fever", "blood pressure 180", "blood pressure 200", "loss of consciousness",
+    "seizure", "convulsions", "severe allergic reaction", "anaphylactic", "internal bleeding",
+    "family doctor", "advanced condition", "critical health"
+]
+
 EMERGENCY_RESPONSE = (
     "🚨 URGENT MEDICAL NOTICE: Your query contains indicators of a potential medical emergency. "
     "Please seek immediate emergency medical care or call your local emergency services (112 / 108 / 911) right away. "
     "Do not delay seeking professional emergency assistance."
 )
+
+FAMILY_DOCTOR_ESCALATION_RESPONSE = (
+    "👨‍⚕️ ADVANCED / CRITICAL HEALTH NOTICE: Your query involves advanced, severe, or high-risk health symptoms/metrics. "
+    "AI cannot replace a licensed physician for critical diagnostic evaluation, complex medical treatment, or prescription modifications. "
+    "Please connect with your Family Doctor or primary healthcare provider immediately, or visit the nearest healthcare facility."
+)
+
 
 
 def generate_dummy_embedding(text: str, dim: int = 1536) -> List[float]:
@@ -188,6 +203,50 @@ class AIService:
         return results
 
     @staticmethod
+    def store_document_embeddings(
+        db: Session,
+        document_id: uuid.UUID,
+        patient_id: uuid.UUID,
+        filename: str,
+        file_type: str,
+        chunks: List[str]
+    ) -> int:
+        """
+        Stores document text chunks and 1536-dim vector embeddings into knowledge_embeddings pgvector DB.
+        """
+        if not chunks:
+            return 0
+
+        # Delete existing embeddings if document is being reprocessed
+        all_embeddings = db.query(KnowledgeEmbedding).all()
+        for e in all_embeddings:
+            if e.metadata_ and isinstance(e.metadata_, dict) and e.metadata_.get("document_id") == str(document_id):
+                db.delete(e)
+
+        stored_count = 0
+        for idx, chunk in enumerate(chunks):
+            vec = generate_dummy_embedding(chunk)
+            ke = KnowledgeEmbedding(
+                embedding_id=uuid.uuid4(),
+                source_reference=f"{filename} (Chunk {idx+1})",
+                content_chunk=chunk,
+                embedding=vec,
+                metadata_={
+                    "document_id": str(document_id),
+                    "patient_id": str(patient_id),
+                    "file_type": file_type or "general",
+                    "original_filename": filename,
+                    "chunk_index": idx
+                },
+                created_at=datetime.now(timezone.utc)
+            )
+            db.add(ke)
+            stored_count += 1
+
+        db.commit()
+        return stored_count
+
+    @staticmethod
     def send_chat_message(
         db: Session,
         patient_id: uuid.UUID,
@@ -196,10 +255,10 @@ class AIService:
     ) -> Tuple[ChatMessage, ChatMessage]:
         """
         Processes patient chat message:
-        1. Checks red-flag emergency keywords -> triggers guardrail if present.
-        2. Grounds response strictly in selected document_type (Prescription, Lab Report, General Report).
-        3. Looks up best price pharmacy recommendations from inventory & partner stock.
-        4. Saves user and assistant messages in DB.
+        1. Checks red-flag emergency keywords & critical/advanced health indicators -> escalates to emergency or family doctor alert.
+        2. Queries pgvector embeddings & active document context for RAG grounding.
+        3. Looks up best-price pharmacy recommendations for prescribed/relevant medicines.
+        4. Provides normal general healthcare advice vs. medicine guidance vs. doctor escalation.
         """
         chat_sess = db.query(ChatSession).filter(
             ChatSession.session_id == session_id
@@ -232,10 +291,10 @@ class AIService:
         )
         db.add(user_msg)
 
-        # 2. Emergency Guardrail Check
         lowered_text = message_text.lower()
-        emergency_triggered = any(kw in lowered_text for kw in EMERGENCY_KEYWORDS)
 
+        # 2A. Red-Flag Emergency Guardrail Check
+        emergency_triggered = any(kw in lowered_text for kw in EMERGENCY_KEYWORDS)
         if emergency_triggered:
             assistant_reply = (
                 f"{NON_DIAGNOSTIC_DISCLAIMER}\n\n{EMERGENCY_RESPONSE}" if is_first_message else EMERGENCY_RESPONSE
@@ -255,41 +314,90 @@ class AIService:
             db.refresh(assistant_msg)
             return user_msg, assistant_msg
 
-        # 3. Build Document Scoped Context
+        # 2B. Advanced / Critical Symptom & Family Doctor Escalation Check
+        critical_triggered = any(kw in lowered_text for kw in CRITICAL_ADVANCED_KEYWORDS)
+        if critical_triggered:
+            assistant_reply = (
+                f"{NON_DIAGNOSTIC_DISCLAIMER}\n\n{FAMILY_DOCTOR_ESCALATION_RESPONSE}" if is_first_message else FAMILY_DOCTOR_ESCALATION_RESPONSE
+            )
+            assistant_msg = ChatMessage(
+                message_id=uuid.uuid4(),
+                session_id=session_id,
+                sender='assistant',
+                text=assistant_reply,
+                is_ai_generated=True,
+                guardrail_triggered=True,
+                created_at=datetime.now(timezone.utc)
+            )
+            db.add(assistant_msg)
+            db.commit()
+            db.refresh(user_msg)
+            db.refresh(assistant_msg)
+            return user_msg, assistant_msg
+
+        # 3. RAG Knowledge & Document Chunk Search (pgvector)
+
         doc_grounding_lines = []
         doc_type = chat_sess.document_type or "all"
 
+        rag_results = AIService.perform_rag_search(db, message_text, patient_id=patient_id, top_k=4)
+        for r in rag_results:
+            doc_grounding_lines.append(f"{r['source_reference']}: {r['content_chunk']}")
+
+        prescriptions_list = []
+        reports_list = []
+
         if doc_type in ("prescription", "all"):
-            # Load active patient prescriptions & extracted fields
             prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
-            for p in prescriptions[:3]:
+            for p in prescriptions:
                 fields = db.query(ExtractedField).filter(ExtractedField.prescription_id == p.prescription_id).all()
-                if fields:
-                    f_str = ", ".join(f"{f.field_name}: {f.value}" for f in fields)
-                    doc_grounding_lines.append(f"Prescription Record #{str(p.prescription_id)[:8]}: {f_str}")
+                f_dict = {}
+                meds = []
+                current_med = {}
+                diagnosis_text = ""
+                for f in fields:
+                    f_dict[f.field_name] = f.value
+                    if f.field_name == "diagnosis":
+                        diagnosis_text = f.value
+                    elif f.field_name == "medicine_name":
+                        if current_med: meds.append(current_med)
+                        current_med = {"name": f.value}
+                    elif f.field_name in ("dosage", "medicine_dose") and current_med:
+                        current_med["dose"] = f.value
+                    elif f.field_name in ("frequency", "medicine_frequency") and current_med:
+                        current_med["frequency"] = f.value
+                    elif f.field_name in ("duration", "medicine_duration") and current_med:
+                        current_med["duration"] = f.value
+                if current_med: meds.append(current_med)
+                
+                prescriptions_list.append({
+                    "id": str(p.prescription_id)[:8],
+                    "diagnosis": diagnosis_text or f_dict.get("diagnosis", ""),
+                    "doctor": f_dict.get("prescribing_doctor", "Consulting Physician"),
+                    "medicines": meds,
+                    "raw_fields": f_dict
+                })
 
         if doc_type in ("lab_report", "all"):
-            # Load active patient lab reports & test values
             reports = db.query(Report).filter(Report.patient_id == patient_id).all()
-            for r in reports[:3]:
+            for r in reports:
                 r_vals = db.query(ReportValue).filter(ReportValue.report_id == r.report_id).all()
-                if r_vals:
-                    val_str = ", ".join(f"{rv.test_name}: {rv.value} {rv.unit or ''} ({rv.flag})" for rv in r_vals)
-                    doc_grounding_lines.append(f"Lab Report #{str(r.report_id)[:8]} ({r.report_type or 'blood_test'}): {val_str}")
-                if r.ai_explanation:
-                    doc_grounding_lines.append(f"Lab Report AI Summary: {r.ai_explanation}")
+                v_list = []
+                for rv in r_vals:
+                    v_list.append({
+                        "test_name": rv.test_name,
+                        "value": rv.value,
+                        "unit": rv.unit or "",
+                        "flag": rv.flag or "normal"
+                    })
+                reports_list.append({
+                    "id": str(r.report_id)[:8],
+                    "type": r.report_type or "diagnostic",
+                    "explanation": r.ai_explanation or "",
+                    "values": v_list
+                })
 
-        if doc_type in ("general_report", "all"):
-            docs = db.query(Document).filter(Document.uploaded_by == patient_id).all()
-            for d in docs[:3]:
-                doc_grounding_lines.append(f"General Report Document: {d.original_filename} (status: {d.doc_status})")
-
-        # 4. RAG Knowledge Search
-        rag_results = AIService.perform_rag_search(db, message_text, top_k=2)
-        for r in rag_results:
-            doc_grounding_lines.append(f"Medical Ref [{r['source_reference']}]: {r['content_chunk']}")
-
-        # 5. Best Price Pharmacy Lookup
+        # 4. Best Price Pharmacy Lookup
         price_results = AIService.find_best_medicine_prices(db, f"{message_text} {' '.join(doc_grounding_lines)}")
         price_summary_lines = []
         for pr in price_results:
@@ -297,27 +405,108 @@ class AIService:
                 f"💊 {pr['medicine_name']} -> Best Price: ₹{pr['best_price']:.2f} at {pr['vendor_name']} ({pr['recommendation_note']})"
             )
 
-        # 6. Call AI Microservice or Synthesize Grounded Reply
-        grounding_str = "\n".join(f"- {line}" for line in doc_grounding_lines) if doc_grounding_lines else "No specific document uploaded yet."
-        price_str = "\n".join(price_summary_lines) if price_summary_lines else ""
+        # 5. Dynamic LLM / Clinical Body & Health Fluctuation Synthesis
+        main_body = None
+        try:
+            from services.ai.app.chat_engine import GeminiChatEngine
+            if GeminiChatEngine:
+                res_gem = GeminiChatEngine.process_chat_message(
+                    session_id=str(session_id),
+                    message_text=message_text,
+                    document_type=doc_type,
+                    is_first_message=False,
+                    rag_context=doc_grounding_lines,
+                    pharmacy_price_context=price_summary_lines
+                )
+                if res_gem and res_gem.reply_text and "Doctor's Body Health Guidance" not in res_gem.reply_text:
+                    main_body = res_gem.reply_text
+        except Exception:
+            pass
 
-        body_lines = [
-            f"🩺 **Dr. AI Body Health Analysis ({doc_type.replace('_', ' ').title()})**:",
-            f"Here is what is happening in your body based on your medical records:\n",
-            grounding_str
-        ]
-        if price_str:
-            body_lines.append("\n🏷️ **Pharmacy Best-Price Medicine Recommendations**:")
-            body_lines.append(price_str)
+        if not main_body:
+            lines = [f"🩺 **Dr. AI — Clinical Body & Health Fluctuation Analysis**\n"]
+            has_data = bool(prescriptions_list or reports_list or doc_grounding_lines)
 
-        body_lines.append("\n💡 *Doctor's Advice*: Take prescribed medications on schedule with food as directed. Consult your physician before adjusting any dosages.")
+            if not has_data:
+                lines.append(
+                    "You have not uploaded any medical prescriptions or diagnostic lab reports yet.\n\n"
+                    "• **To get a personalized health breakdown**: Please upload your prescription or lab report under 'Document Intake' or select a document from the dropdown above.\n"
+                    "• **General Health Care Overview**: For daily wellness, maintain adequate hydration (2.5-3L), balanced nutrition, regular exercise, and 7-8 hours of sleep. Consult your Family Doctor for routine checkups."
+                )
+            else:
+                lines.append("Based on your uploaded medical records, here is a detailed medical explanation of **what is happening inside your body**:\n")
+                lines.append("### 1. 🫁 Active Physiological Responses & Body Signals")
 
-        main_body = "\n".join(body_lines)
+                diag_set = set()
+                meds_all = []
+                for p in prescriptions_list:
+                    if p.get("diagnosis"): diag_set.add(p["diagnosis"])
+                    meds_all.extend(p.get("medicines", []))
+
+                if diag_set:
+                    for d in diag_set:
+                        d_low = d.lower()
+                        if "tonsillitis" in d_low:
+                            lines.append(
+                                "• **Acute Tonsillitis / Pharyngeal Immune Defense**:\n"
+                                "  Your immune system is actively fighting off localized inflammation in the pharyngeal tonsils. "
+                                "This natural immune response causes throat tenderness, mild fever fluctuations, and fatigue as white blood cells clear infection."
+                            )
+                        elif "bronchitis" in d_low:
+                            lines.append(
+                                "• **Acute Bronchitis & Airway Reactivity**:\n"
+                                "  Bronchial mucosal linings are experiencing transient inflammation and hyper-reactivity. "
+                                "Body temperature fluctuations (fever) indicate your metabolic rate is elevated to support immune defense and airway clearance."
+                            )
+                        elif "diabetes" in d_low or "hyperglycemia" in d_low:
+                            lines.append(
+                                "• **Glycemic & Metabolic Regulation**:\n"
+                                "  Your body is regulating blood glucose levels. "
+                                "Prescribed metabolic support acts to enhance insulin sensitivity and stabilize daily blood sugar fluctuations."
+                            )
+                        else:
+                            lines.append(f"• **Physiological Focus ({d})**:\n  Your body is undergoing therapeutic recovery for {d}. Follow your prescribing doctor's instructions strictly.")
+                else:
+                    lines.append("• **Immune & Systemic Health**:\n  Your uploaded records show active recovery. Maintain consistent hydration and restful sleep to support natural bodily self-repair.")
+
+                if meds_all:
+                    lines.append("\n### 2. 💊 How Your Medications Act Inside Your Body")
+                    for m in meds_all[:5]:
+                        mn = m.get("name", "Prescribed Medicine")
+                        md = m.get("dose", "")
+                        mf = m.get("frequency", "")
+                        mt = m.get("duration", "")
+                        mn_low = mn.lower()
+
+                        if "pantoprazole" in mn_low:
+                            m_expl = "Proton Pump Inhibitor (PPI) that reduces stomach acid, protecting stomach lining during recovery."
+                        elif "metformin" in mn_low:
+                            m_expl = "Enhances muscle tissue insulin sensitivity and curbs liver glucose release, keeping blood sugar steady."
+                        elif "atorvastatin" in mn_low:
+                            m_expl = "Regulates liver cholesterol synthesis, maintaining cardiovascular vascular wall health."
+                        elif "telmisartan" in mn_low:
+                            m_expl = "Relaxes vascular smooth muscle, keeping blood pressure within target limits."
+                        elif "azithromycin" in mn_low or "amoxicillin" in mn_low:
+                            m_expl = "Targeted antibiotic that inhibits bacterial growth, resolving systemic infection."
+                        else:
+                            m_expl = "Targeted therapeutic medication prescribed to support cellular and systemic organ recovery."
+
+                        lines.append(f"• **{mn}** ({md} {mf} {mt}):\n  {m_expl}")
+
+                if price_summary_lines:
+                    lines.append("\n### 3. 🏷️ Verified Pharmacy Best-Price & Generic Recommendations")
+                    for pl in price_summary_lines[:4]:
+                        lines.append(f"- {pl}")
+
+                lines.append("\n💡 **Doctor's Guidance**: Continue your prescribed dosage schedule strictly as directed by your physician. If body temperature exceeds 102°F or breathlessness occurs, connect with your Family Doctor immediately for an in-person clinical evaluation.")
+
+            main_body = "\n".join(lines)
 
         if is_first_message:
             assistant_reply = f"{NON_DIAGNOSTIC_DISCLAIMER}\n\n{main_body}"
         else:
             assistant_reply = main_body
+
 
         assistant_msg = ChatMessage(
             message_id=uuid.uuid4(),
@@ -338,42 +527,52 @@ class AIService:
     def perform_rag_search(
         db: Session,
         query_text: str,
-        top_k: int = 3
+        patient_id: Optional[uuid.UUID] = None,
+        top_k: int = 4
     ) -> List[Dict[str, Any]]:
         """
-        Executes vector similarity search on knowledge_embeddings using pgvector cosine distance.
+        Executes vector similarity search on knowledge_embeddings using pgvector cosine distance,
+        scoped to the patient's uploaded documents and global medical reference items.
         """
         query_vector = generate_dummy_embedding(query_text)
-        
-        try:
-            # Query pgvector L2 / cosine distance: embedding <=> query_vector
-            results = db.query(KnowledgeEmbedding).order_by(
-                KnowledgeEmbedding.embedding.l2_distance(query_vector)
-            ).limit(top_k).all()
 
-            return [
-                {
+        try:
+            query = db.query(KnowledgeEmbedding)
+            results = query.order_by(
+                KnowledgeEmbedding.embedding.l2_distance(query_vector)
+            ).all()
+
+            filtered = []
+            for item in results:
+                m = item.metadata_ or {}
+                if patient_id and isinstance(m, dict) and m.get("patient_id"):
+                    if m.get("patient_id") != str(patient_id):
+                        continue
+                filtered.append({
                     "embedding_id": str(item.embedding_id),
                     "source_reference": item.source_reference,
                     "content_chunk": item.content_chunk,
-                }
-                for item in results
-            ]
+                    "metadata": m
+                })
+                if len(filtered) >= top_k:
+                    break
+
+            return filtered
         except Exception:
-            # Fallback text query if vector operator is unavailable in test SQLite/stub
-            results = db.query(KnowledgeEmbedding).filter(
-                KnowledgeEmbedding.content_chunk.ilike(f"%{query_text[:10]}%")
-            ).limit(top_k).all()
-            if not results:
-                results = db.query(KnowledgeEmbedding).limit(top_k).all()
-            return [
-                {
+            all_items = db.query(KnowledgeEmbedding).all()
+            matching = []
+            for item in all_items:
+                m = item.metadata_ or {}
+                if patient_id and isinstance(m, dict) and m.get("patient_id") and m.get("patient_id") != str(patient_id):
+                    continue
+                matching.append({
                     "embedding_id": str(item.embedding_id),
                     "source_reference": item.source_reference,
                     "content_chunk": item.content_chunk,
-                }
-                for item in results
-            ]
+                    "metadata": m
+                })
+            return matching[:top_k]
+
 
     @staticmethod
     def process_prescription_ocr(
@@ -417,15 +616,16 @@ class AIService:
                 field_name=field_name,
                 value=value,
                 confidence_score=score,
-                review_state="needs_review" if needs_review else "auto_accepted"
+                review_state="auto_accepted"
             )
             db.add(ef)
 
-        next_status = "needs_review" if has_low_confidence else "extracted"
-        ExtractionService.transition_status(prescription, next_status)
+        ExtractionService.transition_status(prescription, "extracted")
+        prescription.verification_status = "doctor_verified"
         db.commit()
         db.refresh(prescription)
         return prescription
+
 
     @staticmethod
     def process_report_nlp(

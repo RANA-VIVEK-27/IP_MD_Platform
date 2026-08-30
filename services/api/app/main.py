@@ -22,7 +22,28 @@ app.add_middleware(
 app.include_router(api_v1_router, prefix="/api/v1")
 
 
+@app.on_event("startup")
+def ensure_db_schema():
+    try:
+        from app.db.session import engine
+        from sqlalchemy import text
+        sql_statements = [
+            "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS document_type VARCHAR(50);",
+            "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS context_prescription_id UUID;",
+            "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS context_document_id UUID;",
+            "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS context_report_id UUID;",
+            "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS consent_record_id UUID;",
+            "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS purged_at TIMESTAMPTZ;"
+        ]
+        with engine.connect() as conn:
+            for stmt in sql_statements:
+                conn.execute(text(stmt))
+            conn.commit()
+    except Exception as e:
+        print(f"[Schema Sync Notice]: {e}")
+
+
 @app.get("/health", tags=["Health Check"])
 async def health_check():
     """Health check endpoint for container and service monitoring."""
-    return {"status": "ok"}
+    return {"status": "ok"}

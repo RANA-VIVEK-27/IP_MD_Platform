@@ -23,10 +23,24 @@ EMERGENCY_KEYWORDS = [
     "coughing blood", "poisoning", "overdose", "suicidal", "suicide", "end my life"
 ]
 
+CRITICAL_ADVANCED_KEYWORDS = [
+    "high risk", "critical", "severe pain", "organ failure", "kidney failure", 
+    "liver cirrhosis", "cardiac arrest", "malignant", "tumor", "chemotherapy",
+    "uncontrolled fever", "blood pressure 180", "blood pressure 200", "loss of consciousness",
+    "seizure", "convulsions", "severe allergic reaction", "anaphylactic", "internal bleeding",
+    "family doctor", "advanced condition", "critical health"
+]
+
 EMERGENCY_RESPONSE = (
     "🚨 URGENT MEDICAL NOTICE: Your query contains indicators of a potential medical emergency. "
     "Please seek immediate emergency medical care or call your local emergency services (112 / 108 / 911) right away. "
     "Do not delay seeking professional emergency assistance."
+)
+
+FAMILY_DOCTOR_ESCALATION_RESPONSE = (
+    "👨‍⚕️ ADVANCED / CRITICAL HEALTH NOTICE: Your query involves advanced, severe, or high-risk health symptoms/metrics. "
+    "AI cannot replace a licensed physician for critical diagnostic evaluation, complex medical treatment, or prescription modifications. "
+    "Please connect with your Family Doctor or primary healthcare provider immediately, or visit the nearest healthcare facility."
 )
 
 
@@ -42,7 +56,7 @@ class GeminiChatEngine:
     ) -> ChatCompletionResponse:
         """
         Executes Google Gemini 2.5 Flash chat completion with:
-        1. Red-flag emergency symptom detection -> escalates immediately to emergency notice.
+        1. Red-flag emergency symptom detection & Critical/Advanced family doctor escalation guardrails.
         2. Document-type scoping & RAG grounding context insertion.
         3. Best-price pharmacy medicine price recommendation integration.
         4. google-genai SDK call (gemini-2.5-flash) with fallback.
@@ -62,6 +76,21 @@ class GeminiChatEngine:
                 guardrail_triggered=True,
                 llm_provider="google_genai_gemini_2.5_flash_guardrail",
             )
+
+        critical_triggered = any(kw in lowered for kw in CRITICAL_ADVANCED_KEYWORDS)
+        if critical_triggered:
+            reply = (
+                f"{NON_DIAGNOSTIC_DISCLAIMER}\n\n{FAMILY_DOCTOR_ESCALATION_RESPONSE}"
+                if is_first_message else FAMILY_DOCTOR_ESCALATION_RESPONSE
+            )
+            return ChatCompletionResponse(
+                session_id=session_id,
+                reply_text=reply,
+                is_ai_generated=True,
+                guardrail_triggered=True,
+                llm_provider="google_genai_gemini_2.5_flash_guardrail",
+            )
+
 
         gemini_key = os.getenv("GEMINI_API_KEY")
 

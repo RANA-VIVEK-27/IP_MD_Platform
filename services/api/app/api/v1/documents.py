@@ -60,11 +60,16 @@ async def upload_document(
     )
     db.commit()
 
-    # Queue background security scan
+    # Queue background security scan & vector processing with inline fallback
     try:
-        scan_document.delay(str(document.document_id))
+        scan_and_process_document.delay(str(document.document_id))
     except Exception:
-        pass  # If Celery is unavailable, document stays in quarantined state
+        try:
+            scan_document(str(document.document_id))
+            process_document(str(document.document_id))
+            db.refresh(document)
+        except Exception as ie:
+            print(f"[Document Processing Error]: {ie}")
 
     return DocumentUploadResponse(
         document_id=document.document_id,
@@ -75,6 +80,7 @@ async def upload_document(
         scan_status=document.scan_status,
         checksum_sha256=document.checksum_sha256,
     )
+
 
 
 @router.get(

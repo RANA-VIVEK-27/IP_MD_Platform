@@ -1,6 +1,10 @@
 from sqlalchemy import Column, String, Boolean, Text, TIMESTAMP, Enum, ForeignKey, text as sql_text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from pgvector.sqlalchemy import Vector
+try:
+    from pgvector.sqlalchemy import Vector
+except ImportError:
+    from sqlalchemy import JSON as Vector
+
 from app.db.base import Base
 
 class ConsentRecord(Base):
