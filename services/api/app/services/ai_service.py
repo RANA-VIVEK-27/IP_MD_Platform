@@ -1,3 +1,4 @@
+import os
 import uuid
 import math
 from decimal import Decimal
@@ -251,14 +252,16 @@ class AIService:
         db: Session,
         patient_id: uuid.UUID,
         session_id: uuid.UUID,
-        message_text: str
+        message_text: str,
+        document_type: Optional[str] = None,
+        document_id: Optional[uuid.UUID] = None
     ) -> Tuple[ChatMessage, ChatMessage]:
         """
         Processes patient chat message:
-        1. Checks red-flag emergency keywords & critical/advanced health indicators -> escalates to emergency or family doctor alert.
-        2. Queries pgvector embeddings & active document context for RAG grounding.
-        3. Looks up best-price pharmacy recommendations for prescribed/relevant medicines.
-        4. Provides normal general healthcare advice vs. medicine guidance vs. doctor escalation.
+        1. Validates document ownership and authoritative DB document type.
+        2. Checks red-flag emergency keywords & critical/advanced health indicators.
+        3. Queries active document context (ReportValue / ExtractedField) and pgvector embeddings.
+        4. Provides document-aware AI responses (Lab Report Summary vs Prescription Summary).
         """
         chat_sess = db.query(ChatSession).filter(
             ChatSession.session_id == session_id
@@ -273,6 +276,41 @@ class AIService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="FORBIDDEN: You do not own this chat session"
             )
+
+        # Document Validation & Authoritative Type Synchronization
+        if document_id:
+            doc_rec = db.query(Document).filter(
+                Document.document_id == document_id,
+                Document.uploaded_by == patient_id,
+                Document.deleted_at.is_(None)
+            ).first()
+            if not doc_rec:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="DOCUMENT_NOT_FOUND: Document ID not found or access forbidden"
+                )
+
+            # Check if this document ID is a Report or Prescription in DB
+            rep_rec = db.query(Report).filter(Report.document_id == document_id).first()
+            rx_rec = db.query(Prescription).filter(Prescription.document_id == document_id).first()
+
+            if rep_rec:
+                chat_sess.document_type = "lab_report"
+                chat_sess.context_report_id = rep_rec.report_id
+                chat_sess.context_document_id = document_id
+            elif rx_rec:
+                chat_sess.document_type = "prescription"
+                chat_sess.context_prescription_id = rx_rec.prescription_id
+                chat_sess.context_document_id = document_id
+            else:
+                chat_sess.document_type = document_type or "general_report"
+                chat_sess.context_document_id = document_id
+
+            db.commit()
+
+        elif document_type and document_type != chat_sess.document_type:
+            chat_sess.document_type = document_type
+            db.commit()
 
         prior_messages_count = db.query(ChatMessage).filter(
             ChatMessage.session_id == session_id
@@ -336,7 +374,6 @@ class AIService:
             return user_msg, assistant_msg
 
         # 3. RAG Knowledge & Document Chunk Search (pgvector)
-
         doc_grounding_lines = []
         doc_type = chat_sess.document_type or "all"
 
@@ -348,7 +385,13 @@ class AIService:
         reports_list = []
 
         if doc_type in ("prescription", "all"):
-            prescriptions = db.query(Prescription).filter(Prescription.patient_id == patient_id).all()
+            p_query = db.query(Prescription).filter(Prescription.patient_id == patient_id)
+            if chat_sess.context_prescription_id:
+                p_query = p_query.filter(Prescription.prescription_id == chat_sess.context_prescription_id)
+            elif chat_sess.context_document_id:
+                p_query = p_query.filter(Prescription.document_id == chat_sess.context_document_id)
+
+            prescriptions = p_query.all()
             for p in prescriptions:
                 fields = db.query(ExtractedField).filter(ExtractedField.prescription_id == p.prescription_id).all()
                 f_dict = {}
@@ -369,9 +412,9 @@ class AIService:
                     elif f.field_name in ("duration", "medicine_duration") and current_med:
                         current_med["duration"] = f.value
                 if current_med: meds.append(current_med)
-                
+
                 prescriptions_list.append({
-                    "id": str(p.prescription_id)[:8],
+                    "id": str(p.prescription_id),
                     "diagnosis": diagnosis_text or f_dict.get("diagnosis", ""),
                     "doctor": f_dict.get("prescribing_doctor", "Consulting Physician"),
                     "medicines": meds,
@@ -379,7 +422,13 @@ class AIService:
                 })
 
         if doc_type in ("lab_report", "all"):
-            reports = db.query(Report).filter(Report.patient_id == patient_id).all()
+            r_query = db.query(Report).filter(Report.patient_id == patient_id)
+            if chat_sess.context_report_id:
+                r_query = r_query.filter(Report.report_id == chat_sess.context_report_id)
+            elif chat_sess.context_document_id:
+                r_query = r_query.filter(Report.document_id == chat_sess.context_document_id)
+
+            reports = r_query.all()
             for r in reports:
                 r_vals = db.query(ReportValue).filter(ReportValue.report_id == r.report_id).all()
                 v_list = []
@@ -388,10 +437,11 @@ class AIService:
                         "test_name": rv.test_name,
                         "value": rv.value,
                         "unit": rv.unit or "",
+                        "reference_range": rv.reference_range or "Not specified",
                         "flag": rv.flag or "normal"
                     })
                 reports_list.append({
-                    "id": str(r.report_id)[:8],
+                    "id": str(r.report_id),
                     "type": r.report_type or "diagnostic",
                     "explanation": r.ai_explanation or "",
                     "values": v_list
@@ -405,104 +455,143 @@ class AIService:
                 f"💊 {pr['medicine_name']} -> Best Price: ₹{pr['best_price']:.2f} at {pr['vendor_name']} ({pr['recommendation_note']})"
             )
 
-        # 5. Dynamic LLM / Clinical Body & Health Fluctuation Synthesis
+        # 5. Build Structured Facts Bundle from DB Records
+        diag_list = []
+        med_objs = []
+        test_objs = []
+        test_result_objs = []
+        advice_list = []
+        follow_up_str = "Not clearly mentioned in the uploaded document."
+
+        for p in prescriptions_list:
+            if p.get("diagnosis") and p["diagnosis"] not in diag_list:
+                diag_list.append(p["diagnosis"])
+            raw_f = p.get("raw_fields", {})
+            if raw_f.get("advice") and raw_f["advice"] not in advice_list:
+                advice_list.append(raw_f["advice"])
+            if raw_f.get("follow_up"):
+                follow_up_str = raw_f["follow_up"]
+
+            for m in p.get("medicines", []):
+                med_objs.append({
+                    "name": m.get("name", "Prescribed Medicine"),
+                    "dose": m.get("dose", "Not clearly mentioned in the uploaded document."),
+                    "frequency": m.get("frequency", "Not clearly mentioned in the uploaded document."),
+                    "duration": m.get("duration", "Not clearly mentioned in the uploaded document."),
+                    "instructions": "As directed by physician"
+                })
+
+        for p in prescriptions_list:
+            raw_f = p.get("raw_fields", {})
+            for k, v in raw_f.items():
+                if "test" in k.lower() or "advised" in k.lower():
+                    test_objs.append({
+                        "test_name": v,
+                        "status": "TEST_ADVISED",
+                        "result_value": None
+                    })
+
+        # Extract Report Values into test_result_objs for Lab Reports
+        for r in reports_list:
+            for v in r.get("values", []):
+                test_result_objs.append({
+                    "parameter": v.get("test_name", "Lab Parameter"),
+                    "value": str(v.get("value", "")),
+                    "unit": v.get("unit", ""),
+                    "reference_range": v.get("reference_range", "Not specified"),
+                    "flag": v.get("flag", "normal"),
+                    "status": "TEST_RESULT_AVAILABLE",
+                    "provenance": { "source": "uploaded_document", "source_location": "lab_report_table", "confidence": 0.95 }
+                })
+
+        fact_bundle_dict = {
+            "document_id": str(chat_sess.context_report_id or chat_sess.context_document_id or chat_sess.context_prescription_id or ""),
+            "document_type": doc_type,
+            "patient_name": "Not clearly mentioned in the uploaded document.",
+            "patient_age": "Not clearly mentioned in the uploaded document.",
+            "patient_gender": "Not clearly mentioned in the uploaded document.",
+            "doctor_name": "Not clearly mentioned in the uploaded document.",
+            "doctor_qualification": "Not clearly mentioned in the uploaded document.",
+            "doctor_reg_no": "Not clearly mentioned in the uploaded document.",
+            "date": "Not clearly mentioned in the uploaded document.",
+            "diagnosis": diag_list,
+            "medicines": med_objs,
+            "tests_advised": test_objs,
+            "test_results": test_result_objs,
+            "general_advice": advice_list,
+            "follow_up": follow_up_str,
+            "raw_ocr_text": "",
+            "overall_confidence": 0.95
+        }
+
+        # 6. Dynamic Fail-Closed LLM Synthesis via AI Microservice HTTP API
         main_body = None
+        ai_service_url = os.getenv("AI_SERVICE_URL", "http://ai:8001")
         try:
-            from services.ai.app.chat_engine import GeminiChatEngine
-            if GeminiChatEngine:
-                res_gem = GeminiChatEngine.process_chat_message(
-                    session_id=str(session_id),
-                    message_text=message_text,
-                    document_type=doc_type,
-                    is_first_message=False,
-                    rag_context=doc_grounding_lines,
-                    pharmacy_price_context=price_summary_lines
-                )
-                if res_gem and res_gem.reply_text and "Doctor's Body Health Guidance" not in res_gem.reply_text:
-                    main_body = res_gem.reply_text
-        except Exception:
-            pass
+            import httpx
+            payload = {
+                "session_id": str(session_id),
+                "message_text": message_text,
+                "document_type": doc_type,
+                "is_first_message": False,
+                "rag_context": doc_grounding_lines,
+                "pharmacy_price_context": price_summary_lines,
+                "structured_facts": fact_bundle_dict
+            }
+            with httpx.Client(timeout=20.0) as client:
+                resp = client.post(f"{ai_service_url}/api/v1/ai/chat-completion", json=payload)
+                if resp.status_code == 200:
+                    res_data = resp.json()
+                    main_body = res_data.get("reply_text")
+        except Exception as e:
+            print(f"[AI Service Microservice HTTP Error]: {e}")
 
         if not main_body:
-            lines = [f"🩺 **Dr. AI — Clinical Body & Health Fluctuation Analysis**\n"]
-            has_data = bool(prescriptions_list or reports_list or doc_grounding_lines)
-
-            if not has_data:
-                lines.append(
-                    "You have not uploaded any medical prescriptions or diagnostic lab reports yet.\n\n"
-                    "• **To get a personalized health breakdown**: Please upload your prescription or lab report under 'Document Intake' or select a document from the dropdown above.\n"
-                    "• **General Health Care Overview**: For daily wellness, maintain adequate hydration (2.5-3L), balanced nutrition, regular exercise, and 7-8 hours of sleep. Consult your Family Doctor for routine checkups."
-                )
-            else:
-                lines.append("Based on your uploaded medical records, here is a detailed medical explanation of **what is happening inside your body**:\n")
-                lines.append("### 1. 🫁 Active Physiological Responses & Body Signals")
-
-                diag_set = set()
-                meds_all = []
-                for p in prescriptions_list:
-                    if p.get("diagnosis"): diag_set.add(p["diagnosis"])
-                    meds_all.extend(p.get("medicines", []))
-
-                if diag_set:
-                    for d in diag_set:
-                        d_low = d.lower()
-                        if "tonsillitis" in d_low:
-                            lines.append(
-                                "• **Acute Tonsillitis / Pharyngeal Immune Defense**:\n"
-                                "  Your immune system is actively fighting off localized inflammation in the pharyngeal tonsils. "
-                                "This natural immune response causes throat tenderness, mild fever fluctuations, and fatigue as white blood cells clear infection."
-                            )
-                        elif "bronchitis" in d_low:
-                            lines.append(
-                                "• **Acute Bronchitis & Airway Reactivity**:\n"
-                                "  Bronchial mucosal linings are experiencing transient inflammation and hyper-reactivity. "
-                                "Body temperature fluctuations (fever) indicate your metabolic rate is elevated to support immune defense and airway clearance."
-                            )
-                        elif "diabetes" in d_low or "hyperglycemia" in d_low:
-                            lines.append(
-                                "• **Glycemic & Metabolic Regulation**:\n"
-                                "  Your body is regulating blood glucose levels. "
-                                "Prescribed metabolic support acts to enhance insulin sensitivity and stabilize daily blood sugar fluctuations."
-                            )
-                        else:
-                            lines.append(f"• **Physiological Focus ({d})**:\n  Your body is undergoing therapeutic recovery for {d}. Follow your prescribing doctor's instructions strictly.")
+            if doc_type in ("lab_report", "lab_results", "lab") or test_result_objs:
+                lines = ["⚠️ **MEDICAL DISCLAIMER**: I am an AI Health Assistant. This explanation is for informational and educational purposes and is not a medical diagnosis.\n"]
+                lines.append("🧪 **What Your Report Shows**:\n")
+                if test_result_objs:
+                    lines.append("📊 **Documented Report Results**:")
+                    for tr in test_result_objs:
+                        u_str = f" {tr['unit']}" if tr.get('unit') else ""
+                        ref_str = f" (Ref: {tr['reference_range']})" if tr.get('reference_range') and tr['reference_range'] != "Not specified" else ""
+                        lines.append(f"- **{tr['parameter']}**: {tr['value']}{u_str}{ref_str} — [{tr['flag'].upper()}]")
+                    lines.append("\n🔎 **Important Findings**:")
+                    ab_items = [tr for tr in test_result_objs if tr.get('flag') in ('low', 'high', 'abnormal')]
+                    if ab_items:
+                        for ab in ab_items:
+                            lines.append(f"- **{ab['parameter']}**: {ab['value']} {ab['unit']} is flagged as **{ab['flag'].upper()}**.")
+                    else:
+                        lines.append("- All documented numeric lab values are within their provided laboratory reference ranges.")
+                    lines.append("\n💡 **What You Can Consider Doing**:")
+                    lines.append("- Discuss any out-of-range parameters with your Family Doctor.")
+                    lines.append("- Review full panel results together rather than interpreting individual parameters in isolation.")
                 else:
-                    lines.append("• **Immune & Systemic Health**:\n  Your uploaded records show active recovery. Maintain consistent hydration and restful sleep to support natural bodily self-repair.")
+                    lines.append("I can see your selected lab report record, but no extracted numeric lab parameters were found in the database for this specific document.")
+                lines.append("\n📖 **What These Results Generally Mean (General Medical Education)**:")
+                lines.append("• Documented laboratory parameters should be evaluated alongside overall clinical status with your Family Doctor.")
+                main_body = "\n".join(lines)
+            else:
+                lines = ["⚠️ **MEDICAL DISCLAIMER**: I am an AI Health Assistant and not a licensed medical professional. My responses are for informational and educational purposes only.\n"]
+                lines.append("💊 **What Your Prescription Contains**:\n")
+                if diag_list:
+                    lines.append("📋 **Diagnosis**:")
+                    for d in diag_list: lines.append(f"- {d}")
+                if med_objs:
+                    lines.append("\n💊 **Prescribed Medicines**:")
+                    for m in med_objs: lines.append(f"- **{m['name']}** | Dose: {m['dose']} | Frequency: {m['frequency']}")
+                if test_objs:
+                    lines.append("\n🧪 **Tests Advised**:")
+                    for t in test_objs: lines.append(f"- **{t['test_name']}** (Status: Advised / Ordered by Doctor)")
+                    lines.append("  *Note: These tests were advised/ordered by your doctor. No test results are present in this prescription.*")
+                lines.append("\n📖 **What the Treatment Is Generally Intended For**:")
+                lines.append("• Consult your prescribing doctor for specific educational details regarding your prescription.")
+                lines.append("\n💡 **Practical Points & Next Steps**:")
+                lines.append("- Take medications strictly as directed by your physician.")
+                lines.append("- Follow up with your prescribing doctor as recommended.")
+                main_body = "\n".join(lines)
 
-                if meds_all:
-                    lines.append("\n### 2. 💊 How Your Medications Act Inside Your Body")
-                    for m in meds_all[:5]:
-                        mn = m.get("name", "Prescribed Medicine")
-                        md = m.get("dose", "")
-                        mf = m.get("frequency", "")
-                        mt = m.get("duration", "")
-                        mn_low = mn.lower()
-
-                        if "pantoprazole" in mn_low:
-                            m_expl = "Proton Pump Inhibitor (PPI) that reduces stomach acid, protecting stomach lining during recovery."
-                        elif "metformin" in mn_low:
-                            m_expl = "Enhances muscle tissue insulin sensitivity and curbs liver glucose release, keeping blood sugar steady."
-                        elif "atorvastatin" in mn_low:
-                            m_expl = "Regulates liver cholesterol synthesis, maintaining cardiovascular vascular wall health."
-                        elif "telmisartan" in mn_low:
-                            m_expl = "Relaxes vascular smooth muscle, keeping blood pressure within target limits."
-                        elif "azithromycin" in mn_low or "amoxicillin" in mn_low:
-                            m_expl = "Targeted antibiotic that inhibits bacterial growth, resolving systemic infection."
-                        else:
-                            m_expl = "Targeted therapeutic medication prescribed to support cellular and systemic organ recovery."
-
-                        lines.append(f"• **{mn}** ({md} {mf} {mt}):\n  {m_expl}")
-
-                if price_summary_lines:
-                    lines.append("\n### 3. 🏷️ Verified Pharmacy Best-Price & Generic Recommendations")
-                    for pl in price_summary_lines[:4]:
-                        lines.append(f"- {pl}")
-
-                lines.append("\n💡 **Doctor's Guidance**: Continue your prescribed dosage schedule strictly as directed by your physician. If body temperature exceeds 102°F or breathlessness occurs, connect with your Family Doctor immediately for an in-person clinical evaluation.")
-
-            main_body = "\n".join(lines)
-
-        if is_first_message:
+        if is_first_message and "MEDICAL DISCLAIMER" not in main_body:
             assistant_reply = f"{NON_DIAGNOSTIC_DISCLAIMER}\n\n{main_body}"
         else:
             assistant_reply = main_body

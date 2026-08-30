@@ -272,7 +272,12 @@ export default function ChatAssistantPage() {
         setSessionId(newSess.session_id);
       }
 
-      const turn = await apiClient.sendChatMessage(activeSessionId, userText);
+      const turn = await apiClient.sendChatMessage(
+        activeSessionId,
+        userText,
+        selectedDocType === 'all' ? undefined : selectedDocType,
+        selectedDocId || undefined
+      );
       setMessages((prev) => [
         ...prev.filter((m) => m.message_id !== tempUserMsg.message_id),
         turn.user_message,

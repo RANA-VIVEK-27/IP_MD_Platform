@@ -327,10 +327,14 @@ export const ApiClient = {
     }),
   getPatientChatDocuments: () =>
     apiRequest<PatientChatDocumentsResponse>('/ai/documents'),
-  sendChatMessage: (sessionId: string, text: string) =>
+  sendChatMessage: (sessionId: string, text: string, documentType?: string, documentId?: string) =>
     apiRequest<ChatTurnResponse>(`/ai/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({
+        text,
+        document_type: documentType || null,
+        document_id: documentId || null,
+      }),
     }),
   getChatHistory: (sessionId: string) =>
     apiRequest<ChatHistoryResponse>(`/ai/chat/sessions/${sessionId}/messages`),

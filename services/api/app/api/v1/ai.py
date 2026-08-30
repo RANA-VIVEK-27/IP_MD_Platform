@@ -140,7 +140,9 @@ def send_chat_message(
         db=db,
         patient_id=current_user.user_id,
         session_id=session_id,
-        message_text=req.text
+        message_text=req.text,
+        document_type=req.document_type,
+        document_id=req.document_id
     )
 
     return ChatTurnResponse(

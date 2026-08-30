@@ -9,6 +9,12 @@ from .schemas import (
     PrescriptionExtractionResponse,
     ReportValueItem,
     ReportParseResponse,
+    StructuredPrescriptionFactBundle,
+    StructuredMedicineItem,
+    StructuredAdvisedTestItem,
+    TestStatus,
+    FactSource,
+    ProvenanceItem,
 )
 
 CONFIDENCE_THRESHOLD = 0.850
@@ -223,6 +229,167 @@ def _extract_prescription_fields_from_text(ocr_text: str) -> List[Tuple[str, str
         fields.append(("advice", "; ".join(advice_items)[:200], 0.85))
 
     return fields
+
+
+def extract_structured_prescription_facts(ocr_text: str) -> StructuredPrescriptionFactBundle:
+    """
+    Extract structured facts with source provenance from raw OCR text.
+    Dynamic parsing without hardcoded patient or doctor sample data.
+    Missing fields default to 'Not clearly mentioned in the uploaded document.'
+    """
+    lines = [l.strip() for l in ocr_text.split('\n') if l.strip()]
+
+    patient_name = "Not clearly mentioned in the uploaded document."
+    patient_age = "Not clearly mentioned in the uploaded document."
+    patient_gender = "Not clearly mentioned in the uploaded document."
+    doctor_name = "Not clearly mentioned in the uploaded document."
+    doctor_qualification = "Not clearly mentioned in the uploaded document."
+    doctor_reg_no = "Not clearly mentioned in the uploaded document."
+    date = "Not clearly mentioned in the uploaded document."
+    diagnosis_list = []
+    medicines = []
+    tests_advised = []
+    general_advice = []
+    follow_up = "Not clearly mentioned in the uploaded document."
+
+    # 1. Header parsing (Doctor, Patient, Date, Reg No)
+    for line in lines:
+        low = line.lower()
+        if not doctor_name.startswith("Dr."):
+            m_dr = re.search(r"(Dr\.?\s+[A-Za-z\s.]+)", line)
+            if m_dr:
+                doctor_name = m_dr.group(1).strip()
+
+        if "mbbs" in low or "md" in low or "ms" in low or "dnb" in low:
+            m_qual = re.search(r"((?:MBBS|MD|MS|DNB|BAMS|BHMS)[^\n]*)", line, re.IGNORECASE)
+            if m_qual:
+                doctor_qualification = m_qual.group(1).strip()
+
+        if "reg" in low or "registration" in low:
+            m_reg = re.search(r"(?:reg(?:istration)?\.?\s*no\.?\s*[:\-]?\s*)([A-Z0-9\-/]+)", line, re.IGNORECASE)
+            if m_reg:
+                doctor_reg_no = m_reg.group(1).strip()
+
+        if "patient" in low or "name" in low:
+            m_pat = re.search(r"(?:patient\s*name|name)\s*[:\-]?\s*([A-Za-z\s]+)", line, re.IGNORECASE)
+            if m_pat and not m_pat.group(1).strip().lower().startswith("dr"):
+                patient_name = m_pat.group(1).strip()
+
+        m_age = re.search(r"(?:age\s*[:\-]?\s*)(\d+\s*(?:years|yrs|y)?)\b", line, re.IGNORECASE)
+        if m_age:
+            patient_age = m_age.group(1).strip()
+
+        m_gen = re.search(r"(?:gender|sex)\s*[:\-]?\s*(male|female|m|f)\b", line, re.IGNORECASE)
+        if m_gen:
+            g_str = m_gen.group(1).strip().lower()
+            patient_gender = "Female" if g_str in ("female", "f") else "Male"
+
+        m_date = re.search(r"\b(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})\b", line)
+        if m_date:
+            date = m_date.group(1).strip()
+
+    # 2. Diagnosis Section
+    m_diag = re.search(r"diagnosis\s*[:\-]?\s*(.+)", ocr_text, re.IGNORECASE)
+    if m_diag:
+        raw_d = m_diag.group(1).split('\n')[0].strip()
+        for d_part in re.split(r"[,;]", raw_d):
+            d_clean = re.sub(r"^(?:tests|advice|rx|medicines).*$", "", d_part, flags=re.IGNORECASE).strip()
+            if d_clean and len(d_clean) > 2:
+                diagnosis_list.append(d_clean)
+
+    # 3. Medicines Parsing
+    med_prefix_re = re.compile(
+        r"^\s*(?:\(?\d+\)?[\.\s]*)?"
+        r"(Tab\.?|Syrup|Cap\.?|Capsule|Injection|Inj\.?|Drops?|Suspension|Gel|Ointment|Cream|Sachet)"
+        r"\s+(.+)$",
+        re.IGNORECASE
+    )
+    freq_re = re.compile(
+        r"((?:Once|Twice|Thrice|Three times|Four times|1-0-1|1-1-1|1-0-0|0-0-1|SOS)\s*(?:Daily|a day|before meals|after meals)?|\bSOS\b)",
+        re.IGNORECASE
+    )
+    dur_re = re.compile(r"(\d+\s*(?:days?|weeks?|months?))", re.IGNORECASE)
+
+    for line in lines:
+        m_med = med_prefix_re.match(line)
+        if m_med:
+            form = m_med.group(1).strip()
+            rest = m_med.group(2).strip()
+
+            freq_m = freq_re.search(rest)
+            freq_str = freq_m.group(1).strip() if freq_m else "Not clearly mentioned in the uploaded document."
+
+            dur_m = dur_re.search(rest)
+            dur_str = dur_m.group(1).strip() if dur_m else "Not clearly mentioned in the uploaded document."
+
+            clean_name = rest
+            if freq_m:
+                clean_name = clean_name[:freq_m.start()].strip()
+
+            instr = "Not clearly mentioned in the uploaded document."
+            if "before breakfast" in rest.lower() or "before meal" in rest.lower():
+                instr = "Before meals / breakfast"
+            elif "after meal" in rest.lower() or "after food" in rest.lower():
+                instr = "After meals"
+            elif "sos" in rest.lower() or "if pain" in rest.lower() or "if acidity" in rest.lower():
+                instr = "As needed (SOS)"
+
+            medicines.append(StructuredMedicineItem(
+                name=f"{form} {clean_name}".strip(),
+                dose="1 tablet/unit" if "tab" in form.lower() or "cap" in form.lower() else "As directed",
+                frequency=freq_str,
+                duration=dur_str,
+                instructions=instr,
+                provenance=ProvenanceItem(source=FactSource.UPLOADED_DOCUMENT, source_location="prescription_table", confidence=0.95)
+            ))
+
+    # 4. Tests Advised Parsing
+    m_tests = re.search(r"(?:tests?\s*advised|tests?)\s*[:\-]?\s*(.+?)(?=\n\s*(?:(?:general\s*)?advice|follow|dr\.|signature|$))", ocr_text, re.IGNORECASE | re.DOTALL)
+    if m_tests:
+        tests_block = m_tests.group(1).strip()
+        for t_line in tests_block.split('\n'):
+            t_clean = t_line.strip().lstrip("•-* 1234567890.)")
+            if t_clean and len(t_clean) > 1 and not any(kw in t_clean.lower() for kw in ["avoid", "drink", "eat", "follow"]):
+                for sub_t in re.split(r"[,;]", t_clean):
+                    sub_clean = sub_t.strip()
+                    if sub_clean:
+                        tests_advised.append(StructuredAdvisedTestItem(
+                            test_name=sub_clean,
+                            status=TestStatus.TEST_ADVISED,
+                            result_value=None,
+                            provenance=ProvenanceItem(source=FactSource.UPLOADED_DOCUMENT, source_location="tests_section", confidence=0.95)
+                        ))
+
+    # 5. General Advice Parsing
+    m_adv = re.search(r"(?:general\s*advice|advice)\s*[:\-]?\s*(.+?)(?=\n\s*(?:follow|dr\.|signature|$))", ocr_text, re.IGNORECASE | re.DOTALL)
+    if m_adv:
+        adv_block = m_adv.group(1).strip()
+        for a_line in adv_block.split('\n'):
+            a_clean = a_line.strip().lstrip("•-* ")
+            if a_clean and len(a_clean) > 3 and not a_clean.lower().startswith("follow"):
+                general_advice.append(a_clean)
+
+    # 6. Follow-up Parsing
+    m_fol = re.search(r"follow\s*[\-\s]*up\s*[:\-]?\s*(.+)", ocr_text, re.IGNORECASE)
+    if m_fol:
+        follow_up = m_fol.group(1).strip().split('\n')[0].strip()
+
+    return StructuredPrescriptionFactBundle(
+        patient_name=patient_name,
+        patient_age=patient_age,
+        patient_gender=patient_gender,
+        doctor_name=doctor_name,
+        doctor_qualification=doctor_qualification,
+        doctor_reg_no=doctor_reg_no,
+        date=date,
+        diagnosis=diagnosis_list,
+        medicines=medicines,
+        tests_advised=tests_advised,
+        general_advice=general_advice,
+        follow_up=follow_up,
+        raw_ocr_text=ocr_text,
+        overall_confidence=0.95
+    )
 
 
 def _extract_report_fields_from_text(ocr_text: str) -> Tuple[List[ReportValueItem], str]:

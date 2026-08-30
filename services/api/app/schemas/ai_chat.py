@@ -49,6 +49,8 @@ class ChatSessionResponse(BaseModel):
 
 class ChatMessageRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="User message text")
+    document_type: Optional[str] = Field(None, description="prescription | lab_report | general_report")
+    document_id: Optional[uuid.UUID] = Field(None, description="Active selected document ID")
 
 
 class ChatMessageResponse(BaseModel):

@@ -50,6 +50,84 @@ class ReportParseResponse(BaseModel):
     nlp_provider: str = "openai_gpt4o"
 
 
+from enum import Enum
+
+
+class FactSource(str, Enum):
+    UPLOADED_DOCUMENT = "uploaded_document"
+    USER_PROVIDED = "user_provided"
+    GENERAL_EDUCATION = "general_education"
+
+
+class TestStatus(str, Enum):
+    TEST_NOT_MENTIONED = "TEST_NOT_MENTIONED"
+    TEST_ADVISED = "TEST_ADVISED"
+    TEST_RESULT_AVAILABLE = "TEST_RESULT_AVAILABLE"
+    TEST_RESULT_UNAVAILABLE = "TEST_RESULT_UNAVAILABLE"
+
+
+class ClaimClassification(str, Enum):
+    SUPPORTED_DOCUMENT_FACT = "SUPPORTED_DOCUMENT_FACT"
+    DOCUMENT_GROUNDED_INTERPRETATION = "DOCUMENT_GROUNDED_INTERPRETATION"
+    SUPPORTED_USER_FACT = "SUPPORTED_USER_FACT"
+    GENERAL_MEDICAL_EDUCATION = "GENERAL_MEDICAL_EDUCATION"
+    UNSUPPORTED_PATIENT_CLAIM = "UNSUPPORTED_PATIENT_CLAIM"
+
+
+class ProvenanceItem(BaseModel):
+    source: FactSource = FactSource.UPLOADED_DOCUMENT
+    source_location: str = "document"
+    confidence: float = Field(0.95, ge=0.0, le=1.0)
+
+
+class StructuredMedicineItem(BaseModel):
+    name: str
+    dose: str = "Not clearly mentioned in the uploaded document."
+    frequency: str = "Not clearly mentioned in the uploaded document."
+    duration: str = "Not clearly mentioned in the uploaded document."
+    instructions: str = "Not clearly mentioned in the uploaded document."
+    provenance: ProvenanceItem = Field(default_factory=ProvenanceItem)
+
+
+class StructuredAdvisedTestItem(BaseModel):
+    test_name: str
+    status: TestStatus = TestStatus.TEST_ADVISED
+    result_value: Optional[str] = None
+    unit: Optional[str] = None
+    flag: Optional[str] = None
+    provenance: ProvenanceItem = Field(default_factory=ProvenanceItem)
+
+
+class StructuredLabTestResultItem(BaseModel):
+    parameter: str
+    value: str
+    unit: str = ""
+    reference_range: str = "Not specified"
+    flag: str = "normal"  # normal, abnormal, low, high
+    status: TestStatus = TestStatus.TEST_RESULT_AVAILABLE
+    provenance: ProvenanceItem = Field(default_factory=ProvenanceItem)
+
+
+class StructuredPrescriptionFactBundle(BaseModel):
+    document_id: Optional[str] = None
+    document_type: str = "prescription"
+    patient_name: str = "Not clearly mentioned in the uploaded document."
+    patient_age: str = "Not clearly mentioned in the uploaded document."
+    patient_gender: str = "Not clearly mentioned in the uploaded document."
+    doctor_name: str = "Not clearly mentioned in the uploaded document."
+    doctor_qualification: str = "Not clearly mentioned in the uploaded document."
+    doctor_reg_no: str = "Not clearly mentioned in the uploaded document."
+    date: str = "Not clearly mentioned in the uploaded document."
+    diagnosis: List[str] = []
+    medicines: List[StructuredMedicineItem] = []
+    tests_advised: List[StructuredAdvisedTestItem] = []
+    test_results: List[StructuredLabTestResultItem] = []
+    general_advice: List[str] = []
+    follow_up: str = "Not clearly mentioned in the uploaded document."
+    raw_ocr_text: str = ""
+    overall_confidence: float = 0.95
+
+
 class ChatCompletionRequest(BaseModel):
     session_id: str
     message_text: str
@@ -58,6 +136,7 @@ class ChatCompletionRequest(BaseModel):
     is_first_message: bool = False
     rag_context: List[str] = []
     pharmacy_price_context: List[str] = []
+    structured_facts: Optional[StructuredPrescriptionFactBundle] = None
 
 
 class ChatCompletionResponse(BaseModel):
@@ -66,3 +145,6 @@ class ChatCompletionResponse(BaseModel):
     is_ai_generated: bool = True
     guardrail_triggered: bool = False
     llm_provider: str = "google_genai_gemini_2.5_flash"
+    validation_status: str = "PASSED"
+    rejected_claims_count: int = 0
+

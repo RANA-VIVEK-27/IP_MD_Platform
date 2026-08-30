@@ -121,6 +121,7 @@ async def chat_completion(req: ChatCompletionRequest):
             is_first_message=req.is_first_message,
             rag_context=req.rag_context,
             pharmacy_price_context=req.pharmacy_price_context,
+            structured_facts=req.structured_facts,
         )
         return res
     except Exception as e:
