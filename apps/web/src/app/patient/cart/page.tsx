@@ -4,10 +4,16 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiClient, ApiError } from '../../../lib/api';
 import { ScheduleBadge, ComplianceGateBanner } from '../../../components/Badges';
-import { IconShieldCheck, IconShoppingCart, IconTrash2, IconMinus, IconPlus, IconLock, IconAlertTriangle } from '../../../components/Icons';
+import { IconShieldCheck, IconShoppingCart, IconTrash2, IconMinus, IconPlus, IconLock, IconAlertTriangle, IconCreditCard } from '../../../components/Icons';
 import { PageHeader } from '../../../components/PageHeader';
 import { useToast } from '../../../components/Toast';
 import { CartDetail, CartItemDetail } from '../../../lib/types';
+
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
 
 export default function CartPage() {
   const router = useRouter();
@@ -17,32 +23,23 @@ export default function CartPage() {
   const [error, setError] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
-  useEffect(() => {
-    loadCart();
-  }, []);
+  useEffect(() => { loadCart(); }, []);
 
   async function loadCart() {
-    console.log('[CartPage] loadCart called');
     setLoading(true);
     setError('');
     try {
       const cartId = localStorage.getItem('ipmd_cart_id');
-      console.log('[CartPage] cartId from localStorage:', cartId);
       if (cartId) {
         const cartData = await ApiClient.getCart(cartId);
-        console.log('[CartPage] getCart succeeded:', cartData);
         setCart(cartData);
         setLoading(false);
-        console.log('[CartPage] setLoading(false) called after setCart');
         return;
       }
-      console.log('[CartPage] no cartId found, showing empty cart');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to load cart';
-      console.error('[CartPage] loadCart error:', e);
       setError(msg);
     }
-    console.log('[CartPage] calling setLoading(false) at end');
     setLoading(false);
   }
 
@@ -53,6 +50,7 @@ export default function CartPage() {
     if (!cart || hasBlocked) return;
     setCheckoutLoading(true);
     try {
+      // 1. Ensure delivery address
       let addressId = localStorage.getItem('ipmd_default_address_id');
       if (!addressId) {
         const addresses = await ApiClient.listAddresses();
@@ -62,26 +60,104 @@ export default function CartPage() {
           localStorage.setItem('ipmd_default_address_id', addressId);
         } else {
           const newAddr = await ApiClient.createAddress({
-            label: 'Home',
-            line1: '123 MG Road',
-            city: 'Mumbai',
-            state: 'Maharashtra',
-            pincode: '400001',
-            is_default: true,
+            label: 'Home', line1: '123 MG Road', city: 'Mumbai',
+            state: 'Maharashtra', pincode: '400001', is_default: true,
           });
           addressId = newAddr.address_id;
           localStorage.setItem('ipmd_default_address_id', addressId);
         }
       }
+
+      // 2. Create order
       const orderRes = await ApiClient.createOrder(cart.cart_id, addressId);
-      localStorage.removeItem('ipmd_cart_id');
-      addToast('success', 'Order Placed', `Order #${orderRes.order_id.slice(0, 8)} created. Payment required.`);
-      router.push('/patient/orders');
+      const amountPaise = Math.round(orderRes.payment_required_amount * 100);
+
+      // 3. Create Razorpay payment order
+      const paymentRes = await ApiClient.createPaymentOrder(orderRes.order_id, amountPaise);
+
+      // 4. Open Razorpay checkout
+      const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_placeholder';
+
+      const options = {
+        key: razorpayKey,
+        amount: paymentRes.amount,
+        currency: paymentRes.currency,
+        name: 'I.P. & M.D Platform',
+        description: `Order #${orderRes.order_id.slice(0, 8)}`,
+        order_id: paymentRes.razorpay_order_id,
+        handler: async (response: any) => {
+          // Payment successful — capture on backend
+          try {
+            await ApiClient.capturePayment(
+              paymentRes.payment_intent_id,
+              response.razorpay_payment_id,
+              response.razorpay_signature
+            );
+            localStorage.removeItem('ipmd_cart_id');
+            addToast('success', 'Payment Successful', `Order #${orderRes.order_id.slice(0, 8)} confirmed!`);
+            router.push('/patient/orders');
+          } catch (captureErr: any) {
+            addToast('error', 'Payment Capture Failed', captureErr.message || 'Payment was made but confirmation failed. Contact support.');
+            router.push('/patient/orders');
+          }
+        },
+        prefill: {
+          name: '',
+          email: '',
+          contact: '',
+        },
+        theme: {
+          color: '#0D7377',
+        },
+        modal: {
+          ondismiss: () => {
+            addToast('warning', 'Payment Cancelled', 'You can retry payment from your orders page.');
+            setCheckoutLoading(false);
+          },
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', (response: any) => {
+        addToast('error', 'Payment Failed', response.error?.description || 'Payment failed. Please try again.');
+        setCheckoutLoading(false);
+      });
+      rzp.open();
     } catch (e: unknown) {
       const msg = e instanceof ApiError ? e.message : 'Checkout failed';
       addToast('error', 'Checkout Failed', msg);
-    } finally {
       setCheckoutLoading(false);
+    }
+  };
+
+  const handleQuantityChange = async (itemId: string, newQty: number) => {
+    if (!cart || newQty < 1) return;
+    try {
+      await ApiClient.updateCartItem(cart.cart_id, itemId, newQty);
+      setCart(prev => {
+        if (!prev) return prev;
+        const items = prev.items.map(i => i.line_item_id === itemId ? { ...i, quantity: newQty } : i);
+        const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+        return { ...prev, items, subtotal };
+      });
+    } catch (e: any) {
+      addToast('error', 'Failed', e.message || 'Could not update quantity');
+    }
+  };
+
+  const handleRemove = async (itemId: string) => {
+    if (!cart) return;
+    try {
+      await ApiClient.removeCartItem(cart.cart_id, itemId);
+      setCart(prev => {
+        if (!prev) return prev;
+        const items = prev.items.filter(i => i.line_item_id !== itemId);
+        const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+        return { ...prev, items, subtotal };
+      });
+      addToast('success', 'Removed', 'Item removed from cart');
+    } catch (e: any) {
+      addToast('error', 'Failed', e.message || 'Could not remove item');
     }
   };
 
@@ -131,33 +207,58 @@ export default function CartPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--sp-6)', alignItems: 'start' }}>
         <div className="card" style={{ padding: 'var(--sp-5)' }}>
           <h2 className="text-h2" style={{ marginBottom: 'var(--sp-4)' }}>Selected Items</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {cart.items.map((item: CartItemDetail) => (
-              <div key={item.line_item_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 'var(--sp-4)', borderBottom: '1px solid var(--border-light)' }}>
+              <div key={item.line_item_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--sp-4) 0', borderBottom: '1px solid var(--border-light)' }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-1)' }}>
                     <span style={{ fontWeight: 600, fontSize: 'var(--text-md)', color: 'var(--text-primary)' }}>{item.medicine_name}</span>
                     <ScheduleBadge schedule={item.schedule} />
                   </div>
                   <p className="text-caption">Generic: {item.generic_name || '—'}</p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', marginTop: 'var(--sp-2)' }}>
-                    <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Qty: {item.quantity}</span>
-                    {item.checkout_blocked && (
-                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--danger)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
-                        <IconLock size={12} />Rx required
-                      </span>
-                    )}
-                    {item.prescription_id && (
-                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--success)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
-                        <IconShieldCheck size={12} />Rx linked
-                      </span>
-                    )}
-                  </div>
+                  {item.checkout_blocked && (
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--danger)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', marginTop: 'var(--sp-1)' }}>
+                      <IconLock size={12} />Rx required
+                    </span>
+                  )}
+                  {item.prescription_id && (
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--success)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-1)', marginTop: 'var(--sp-1)' }}>
+                      <IconShieldCheck size={12} />Rx linked
+                    </span>
+                  )}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 'var(--sp-2)' }}>
-                  <span className="tabular-nums" style={{ fontWeight: 600, fontSize: 'var(--text-md)', color: 'var(--text-primary)' }}>
-                    ₹{item.price.toFixed(2)}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)' }}>
+                  {/* Quantity controls */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                    <button
+                      onClick={() => handleQuantityChange(item.line_item_id, item.quantity - 1)}
+                      disabled={item.quantity <= 1}
+                      style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-page)', border: 'none', cursor: item.quantity <= 1 ? 'not-allowed' : 'pointer', opacity: item.quantity <= 1 ? 0.4 : 1, fontSize: '16px', fontWeight: 600, color: 'var(--text-secondary)' }}
+                    >
+                      −
+                    </button>
+                    <span style={{ minWidth: '28px', textAlign: 'center', fontWeight: 600, fontSize: 'var(--text-sm)', fontVariantNumeric: 'tabular-nums' }}>{item.quantity}</span>
+                    <button
+                      onClick={() => handleQuantityChange(item.line_item_id, item.quantity + 1)}
+                      style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-page)', border: 'none', cursor: 'pointer', fontSize: '16px', fontWeight: 600, color: 'var(--text-secondary)' }}
+                    >
+                      +
+                    </button>
+                  </div>
+                  {/* Price */}
+                  <span className="tabular-nums" style={{ fontWeight: 700, fontSize: 'var(--text-md)', color: 'var(--primary-dark)', minWidth: '70px', textAlign: 'right' }}>
+                    ₹{(item.price * item.quantity).toFixed(2)}
                   </span>
+                  {/* Remove */}
+                  <button
+                    onClick={() => handleRemove(item.line_item_id)}
+                    title="Remove item"
+                    style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', cursor: 'pointer', color: 'var(--text-muted)', transition: 'all 150ms' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--danger)'; e.currentTarget.style.borderColor = 'var(--danger)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+                  >
+                    <IconTrash2 size={14} />
+                  </button>
                 </div>
               </div>
             ))}

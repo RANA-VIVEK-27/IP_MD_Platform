@@ -1,9 +1,11 @@
 import uuid
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status, HTTPException
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
 from app.db.session import get_db
 from app.models.identity import User
+from app.models.prescription_report import Prescription, ExtractedField, Document
 from app.api.deps import get_current_user, require_roles, require_approved_doctor
 from app.services.prescription_service import PrescriptionService
 from app.schemas.prescription import (
@@ -16,6 +18,18 @@ from app.schemas.prescription import (
 )
 
 router = APIRouter(prefix="/prescriptions", tags=["Prescription Intake & Management"])
+
+
+class PrescriptionMedicine(BaseModel):
+    field_name: str = Field(..., description="Medicine field name (e.g. medicine_1_name)")
+    value: str = Field(..., description="Medicine value (e.g. Paracetamol 500mg)")
+
+
+class DoctorPrescriptionCreateRequest(BaseModel):
+    patient_id: uuid.UUID
+    medicines: List[PrescriptionMedicine] = Field(default_factory=list, description="Extracted medicine fields")
+    report_id: Optional[uuid.UUID] = Field(None, description="Optional source report ID")
+    notes: Optional[str] = Field(None, description="Doctor notes")
 
 
 @router.post(
@@ -67,6 +81,81 @@ async def upload_prescription(
         document_id=prescription.document_id,
         status=prescription.extraction_status
     )
+
+
+@router.post("/create", status_code=status.HTTP_201_CREATED)
+def create_doctor_prescription(
+    req: DoctorPrescriptionCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("doctor"))
+):
+    """
+    Doctor creates a prescription directly with medicine fields (no OCR needed).
+    """
+    from datetime import datetime, timezone
+
+    # Create a placeholder document record
+    doc = Document(
+        uploaded_by=current_user.user_id,
+        original_filename="doctor_created_prescription",
+        mime_type="text/plain",
+        file_size_bytes=0,
+        file_type="pdf",
+        doc_status="ready",
+        scan_status="clean",
+        processing_status="completed",
+        uploaded_at=datetime.now(timezone.utc),
+    )
+    db.add(doc)
+    db.flush()
+
+    # Create prescription
+    prescription = Prescription(
+        patient_id=req.patient_id,
+        doctor_id=current_user.user_id,
+        document_id=doc.document_id,
+        extraction_status="extracted",
+        verification_status="doctor_verified",
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(prescription)
+    db.flush()
+
+    # Create extracted fields from medicines
+    for med in req.medicines:
+        field = ExtractedField(
+            prescription_id=prescription.prescription_id,
+            field_name=med.field_name,
+            value=med.value,
+            confidence_score=1.0,
+            review_state="doctor_edited",
+            edited_by=current_user.user_id,
+            edited_reason="Directly prescribed by doctor",
+        )
+        db.add(field)
+
+    # Add notes as a field if provided
+    if req.notes:
+        field = ExtractedField(
+            prescription_id=prescription.prescription_id,
+            field_name="doctor_notes",
+            value=req.notes,
+            confidence_score=1.0,
+            review_state="doctor_edited",
+            edited_by=current_user.user_id,
+            edited_reason="Doctor notes",
+        )
+        db.add(field)
+
+    db.commit()
+    db.refresh(prescription)
+
+    return {
+        "prescription_id": str(prescription.prescription_id),
+        "document_id": str(prescription.document_id),
+        "status": "created",
+        "message": "Prescription created successfully"
+    }
 
 
 @router.get("/{prescription_id}/status", response_model=PrescriptionStatusResponse)

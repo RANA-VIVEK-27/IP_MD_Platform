@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth, ROLE_REDIRECTS } from '../../lib/auth-context';
-import { IconLock } from '../../components/Icons';
+import { IconLock, IconHeartbeat, IconShieldMedical } from '../../components/Icons';
+import { LoadingSpinner } from '../../components/LoadingSpinner';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -44,66 +45,179 @@ export default function LoginPage() {
   };
 
   if (isLoading || user) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <div className="skeleton" style={{ width: '40px', height: '40px', borderRadius: '50%' }} />
-      </div>
-    );
+    return <LoadingSpinner text="Loading..." />;
   }
 
   return (
-    <div style={{ maxWidth: '440px', margin: 'var(--sp-10) auto', padding: '0 var(--sp-4)' }}>
-      <div className="card" style={{ padding: 'var(--sp-8)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 'var(--sp-6)' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--primary)', color: '#ffffff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 'var(--text-lg)', marginBottom: 'var(--sp-3)' }}>
-            IP
+    <div style={{
+      minHeight: 'calc(100vh - 60px)',
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      background: 'var(--bg-page)',
+    }}>
+      {/* Left: Medical Visual */}
+      <div style={{
+        background: 'linear-gradient(135deg, #0B6E6B 0%, #095A58 40%, #0F2B3C 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 'var(--sp-12)',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+        className="hide-mobile"
+      >
+        {/* Background decorations */}
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 30% 40%, rgba(20, 163, 199, 0.15) 0%, transparent 50%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 70% 60%, rgba(24, 155, 106, 0.1) 0%, transparent 50%)' }} />
+        <div style={{ position: 'absolute', top: '10%', left: '10%', width: '120px', height: '120px', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '50%', animation: 'floatSlow 6s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', bottom: '15%', right: '15%', width: '80px', height: '80px', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '50%', animation: 'floatSlow 8s ease-in-out infinite 1s' }} />
+        <div style={{ position: 'absolute', top: '60%', left: '20%', fontSize: '180px', fontWeight: 200, color: 'rgba(255,255,255,0.03)', lineHeight: 1 }}>+</div>
+
+        <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', maxWidth: '400px' }}>
+          <div style={{
+            width: '72px', height: '72px', borderRadius: 'var(--radius-xl)',
+            background: 'rgba(255,255,255,0.1)',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto var(--sp-6)',
+          }}>
+            <IconHeartbeat size={36} style={{ color: '#fff' }} />
           </div>
-          <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 'var(--sp-1)' }}>
-            Welcome back
-          </h1>
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-            Sign in to your I.P. & M.D Platform account
+          <h2 style={{ fontSize: 'var(--text-3xl)', fontWeight: 800, color: '#fff', letterSpacing: '-0.03em', lineHeight: 1.2, marginBottom: 'var(--sp-4)' }}>
+            I.P. & M.D
+          </h2>
+          <p style={{ fontSize: 'var(--text-md)', color: 'rgba(255,255,255,0.65)', lineHeight: 1.7, marginBottom: 'var(--sp-8)' }}>
+            Intelligent Prescription & Medicine Discovery Platform
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            {[
+              'AI-powered prescription processing',
+              'Doctor verification workflow',
+              'Connected pharmacy network',
+            ].map((item, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', color: 'rgba(255,255,255,0.7)', fontSize: 'var(--text-sm)' }}>
+                <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <IconShieldMedical size={12} style={{ color: 'rgba(255,255,255,0.8)' }} />
+                </div>
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Right: Login Form */}
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 'var(--sp-10) var(--sp-6)',
+      }}>
+        <div style={{ width: '100%', maxWidth: '400px' }}>
+          {/* Mobile logo */}
+          <div className="hide-desktop" style={{ textAlign: 'center', marginBottom: 'var(--sp-6)' }}>
+            <div style={{
+              width: '48px', height: '48px', borderRadius: 'var(--radius-md)',
+              background: 'linear-gradient(135deg, var(--primary) 0%, #0A8E8A 100%)',
+              color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto var(--sp-3)',
+              boxShadow: '0 2px 8px rgba(11, 110, 107, 0.25)',
+            }}>
+              <IconHeartbeat size={24} />
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 'var(--sp-6)' }}>
+            <h1 style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, color: 'var(--text-heading)', letterSpacing: '-0.02em', marginBottom: 'var(--sp-1)' }}>
+              Welcome back
+            </h1>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+              Sign in to your healthcare workspace
+            </p>
+          </div>
+
+          {error && (
+            <div style={{
+              padding: 'var(--sp-3) var(--sp-4)',
+              background: 'var(--danger-bg)',
+              border: '1px solid var(--danger-border)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--danger)',
+              fontSize: 'var(--text-sm)',
+              marginBottom: 'var(--sp-4)',
+              display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
+            }} role="alert">
+              <span style={{ fontSize: '16px' }}>&#9888;</span>
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" htmlFor="email">Email address</label>
+              <input
+                id="email" type="email" className="input" required
+                value={email} onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com" autoComplete="email"
+                style={{ height: '44px', fontSize: 'var(--text-base)' }}
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" htmlFor="password">Password</label>
+              <input
+                id="password" type="password" className="input" required
+                value={password} onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password" autoComplete="current-password" minLength={6}
+                style={{ height: '44px', fontSize: 'var(--text-base)' }}
+              />
+            </div>
+
+            <button
+              type="submit" disabled={submitting}
+              style={{
+                width: '100%', height: '48px',
+                background: 'linear-gradient(135deg, var(--primary) 0%, #0A8E8A 100%)',
+                color: '#fff', border: 'none', borderRadius: 'var(--radius-md)',
+                fontWeight: 600, fontSize: 'var(--text-base)',
+                cursor: submitting ? 'not-allowed' : 'pointer',
+                opacity: submitting ? 0.7 : 1,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--sp-2)',
+                boxShadow: '0 2px 8px rgba(11, 110, 107, 0.25)',
+                transition: 'all 200ms var(--ease)',
+              }}
+            >
+              {submitting ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                  <div style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', animation: 'spin 0.8s linear infinite' }} />
+                  Signing in...
+                </span>
+              ) : (
+                <>
+                  <IconLock size={16} />
+                  Sign In
+                </>
+              )}
+            </button>
+          </form>
+
+          <p style={{ textAlign: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--sp-5)' }}>
+            Don&apos;t have an account?{' '}
+            <Link href="/patient/register" style={{ color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}>
+              Create one
+            </Link>
+          </p>
+
+          <p style={{ textAlign: 'center', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 'var(--sp-4)' }}>
+            AI-generated information does not replace professional medical advice.
           </p>
         </div>
-
-        {error && (
-          <div style={{ padding: 'var(--sp-3) var(--sp-4)', background: 'var(--danger-bg)', border: '1px solid rgba(196, 61, 61, 0.2)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontSize: 'var(--text-sm)', marginBottom: 'var(--sp-4)' }} role="alert">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label" htmlFor="email">Email address</label>
-            <input id="email" type="email" className="input" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" />
-          </div>
-
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label" htmlFor="password">Password</label>
-            <input id="password" type="password" className="input" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" autoComplete="current-password" minLength={6} />
-          </div>
-
-          <button type="submit" className="btn btn-primary btn-lg" disabled={submitting} style={{ width: '100%' }}>
-            {submitting ? (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-                <span className="skeleton" style={{ width: 16, height: 16, borderRadius: '50%' }} />
-                Signing in...
-              </span>
-            ) : (
-              <>
-                <IconLock size={16} />
-                Sign In
-              </>
-            )}
-          </button>
-        </form>
-
-        <p style={{ textAlign: 'center', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--sp-5)' }}>
-          Don&apos;t have an account?{' '}
-          <Link href="/register" style={{ color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}>
-            Create one
-          </Link>
-        </p>
       </div>
     </div>
   );

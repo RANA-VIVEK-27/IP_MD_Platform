@@ -14,6 +14,7 @@ interface OverrideRecord {
 
 export default function SuperAdminCompliancePage() {
   const { addToast } = useToast();
+
   const [orderId, setOrderId] = useState('');
   const [justification, setJustification] = useState('');
   const [overrides, setOverrides] = useState<OverrideRecord[]>([]);

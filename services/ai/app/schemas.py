@@ -5,10 +5,27 @@ from pydantic import BaseModel, Field
 
 
 class ExtractedFieldItem(BaseModel):
+    """Single extracted field (backward compatible)."""
     field_name: str
     value: str
     confidence_score: float = Field(..., ge=0.0, le=1.0)
     needs_review: bool = False
+
+
+class MedicineItem(BaseModel):
+    """Structured medicine extraction result."""
+    sequence: int
+    raw_name: str
+    name: str
+    strength: Optional[str] = None
+    dosage_instruction: Optional[str] = None
+    duration: Optional[str] = None
+    quantity: Optional[int] = None
+    ocr_confidence: float = 0.0
+    parser_confidence: float = 0.0
+    validation_confidence: float = 0.0
+    overall_confidence: float = 0.0
+    needs_review: bool = True
 
 
 class PrescriptionExtractionRequest(BaseModel):
@@ -16,15 +33,20 @@ class PrescriptionExtractionRequest(BaseModel):
     image_base64: Optional[str] = None
     image_url: Optional[str] = None
     filename: Optional[str] = "prescription.jpg"
-    simulate_low_confidence: bool = False
+    simulate_low_confidence: Optional[bool] = False
 
 
 class PrescriptionExtractionResponse(BaseModel):
     prescription_id: str
-    extraction_status: str  # extracted or needs_review
-    fields: List[ExtractedFieldItem]
-    ocr_provider: str = "google_cloud_vision"
-    nlp_provider: str = "openai_gpt4o"
+    extraction_status: str  # extracted, needs_review, failed
+    fields: List[ExtractedFieldItem] = []
+    medicines: List[MedicineItem] = []
+    metadata: Dict[str, Any] = {}
+    raw_ocr_text: str = ""
+    ocr_provider: str = "none"
+    nlp_provider: str = "none"
+    overall_confidence: float = 0.0
+    needs_review: bool = True
 
 
 class ReportValueItem(BaseModel):
@@ -39,7 +61,6 @@ class ReportParseRequest(BaseModel):
     report_id: str
     document_base64: Optional[str] = None
     filename: Optional[str] = "lab_report.pdf"
-    simulate_abnormal: bool = False
 
 
 class ReportParseResponse(BaseModel):
@@ -47,6 +68,7 @@ class ReportParseResponse(BaseModel):
     extraction_status: str = "extracted"
     values: List[ReportValueItem]
     ai_explanation: Optional[str] = None
+    ocr_provider: str = "none"
     nlp_provider: str = "openai_gpt4o"
 
 

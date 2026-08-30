@@ -4,7 +4,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ApiClient, ApiError } from '../../../lib/api';
 import { DocumentItem } from '../../../lib/types';
 import { PageHeader } from '../../../components/PageHeader';
-import { IconFileText, IconAlertTriangle, IconCheckCircle, IconClock, IconTrash2 } from '../../../components/Icons';
+import {
+  IconFileText, IconAlertTriangle, IconCheckCircle, IconClock, IconTrash2, IconEye,
+} from '../../../components/Icons';
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
   ready: { color: 'var(--success)', bg: 'var(--success-bg)', label: 'Ready' },
@@ -42,12 +44,77 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function PreviewModal({ document, onClose }: { document: DocumentItem; onClose: () => void }) {
+  const previewUrl = `/api/v1/documents/${document.document_id}/preview`;
+  const isImage = document.mime_type?.startsWith('image/');
+  const isPdf = document.mime_type === 'application/pdf';
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.8)', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        padding: 'var(--sp-4)',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)',
+          maxWidth: '90vw', maxHeight: '90vh', display: 'flex',
+          flexDirection: 'column', overflow: 'hidden',
+        }}
+      >
+        <div style={{
+          padding: 'var(--sp-3) var(--sp-4)',
+          borderBottom: '1px solid var(--border-light)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {document.original_filename}
+          </span>
+          <button onClick={onClose} className="btn btn-ghost btn-sm" style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}>
+            Close
+          </button>
+        </div>
+        <div style={{ padding: 'var(--sp-2)', overflow: 'auto', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {isImage ? (
+            <img
+              src={previewUrl}
+              alt={document.original_filename}
+              style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 'var(--radius-sm)' }}
+            />
+          ) : isPdf ? (
+            <iframe
+              src={previewUrl}
+              style={{ width: '80vw', height: '75vh', border: 'none', borderRadius: 'var(--radius-sm)' }}
+            />
+          ) : (
+            <div style={{ padding: 'var(--sp-10)', textAlign: 'center' }}>
+              <IconFileText size={48} style={{ color: 'var(--text-muted)', marginBottom: 'var(--sp-3)' }} />
+              <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                Preview not available for this file type ({document.mime_type})
+              </p>
+              <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ marginTop: 'var(--sp-3)', fontSize: 'var(--text-xs)' }}>
+                Open in new tab
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<string>('');
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
 
   const fetchDocuments = useCallback(async () => {
     try {
@@ -115,14 +182,19 @@ export default function DocumentsPage() {
       )}
 
       <div style={{ marginBottom: 'var(--sp-4)', display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-        {['', 'ready', 'quarantined', 'scanning', 'infected', 'scan_failed'].map(s => (
+        {[
+          { value: '', label: 'All' },
+          { value: 'ready', label: 'Ready' },
+          { value: 'infected', label: 'Infected' },
+          { value: 'scan_failed', label: 'Scan Failed' },
+        ].map(opt => (
           <button
-            key={s}
-            className={`btn ${filter === s ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setFilter(s)}
+            key={opt.value}
+            className={`btn ${filter === opt.value ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setFilter(opt.value)}
             style={{ fontSize: 'var(--text-xs)', padding: '4px 12px' }}
           >
-            {s || 'All'}
+            {opt.label}
           </button>
         ))}
       </div>
@@ -165,25 +237,34 @@ export default function DocumentsPage() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
                 <StatusBadge status={doc.doc_status} />
 
                 {doc.doc_status === 'ready' && (
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleDownload(doc)}
-                    disabled={downloading === doc.document_id}
-                    style={{ fontSize: 'var(--text-xs)', padding: '4px 12px' }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    {downloading === doc.document_id ? '...' : 'Download'}
-                  </button>
+                  <>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => setPreviewDoc(doc)}
+                      style={{ fontSize: 'var(--text-xs)', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <IconEye size={14} /> View
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleDownload(doc)}
+                      disabled={downloading === doc.document_id}
+                      style={{ fontSize: 'var(--text-xs)', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      {downloading === doc.document_id ? '...' : 'Download'}
+                    </button>
+                  </>
                 )}
 
                 <button
                   className="btn btn-secondary"
                   onClick={() => handleDelete(doc)}
-                  style={{ fontSize: 'var(--text-xs)', padding: '4px 12px', color: 'var(--danger)' }}
+                  style={{ fontSize: 'var(--text-xs)', padding: '4px 10px', color: 'var(--danger)' }}
                 >
                   <IconTrash2 size={14} />
                 </button>
@@ -192,6 +273,8 @@ export default function DocumentsPage() {
           ))}
         </div>
       )}
+
+      {previewDoc && <PreviewModal document={previewDoc} onClose={() => setPreviewDoc(null)} />}
     </div>
   );
 }

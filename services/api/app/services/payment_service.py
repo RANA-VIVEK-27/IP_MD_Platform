@@ -1,11 +1,13 @@
 import uuid
 import hmac
 import hashlib
+import base64
 from datetime import datetime, timezone
 from typing import Optional, List, Tuple
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
+import httpx
 
 from app.core.config import settings
 from app.models.payments import (
@@ -29,7 +31,7 @@ from app.schemas.payments import (
 class PaymentService:
 
     @staticmethod
-    def create_payment_order(
+    async def create_payment_order(
         db: Session,
         patient_id: uuid.UUID,
         order_id: uuid.UUID,
@@ -78,8 +80,40 @@ class PaymentService:
                 detail=f"AMOUNT_MISMATCH: Expected {expected_paise} paise, received {amount_paise} paise"
             )
 
-        # 3. Create Razorpay order reference
-        razorpay_order_id = f"order_rzp_{uuid.uuid4().hex[:14]}"
+        # 3. Call real Razorpay API to create an order
+        razorpay_auth = base64.b64encode(
+            f"{settings.RAZORPAY_KEY_ID}:{settings.RAZORPAY_KEY_SECRET}".encode()
+        ).decode()
+
+        try:
+            async with httpx.AsyncClient() as client:
+                rzp_resp = await client.post(
+                    "https://api.razorpay.com/v1/orders",
+                    headers={
+                        "Authorization": f"Basic {razorpay_auth}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "amount": amount_paise,
+                        "currency": "INR",
+                        "receipt": str(order_id),
+                    },
+                    timeout=10.0,
+                )
+                rzp_data = rzp_resp.json()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"RAZORPAY_API_ERROR: {str(e)}"
+            )
+
+        if rzp_resp.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"RAZORPAY_ORDER_FAILED: {rzp_data.get('error', {}).get('description', 'Unknown error')}"
+            )
+
+        razorpay_order_id = rzp_data["id"]
 
         payment_intent = PaymentIntent(
             order_id=order_id,

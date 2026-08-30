@@ -69,7 +69,7 @@ class Prescription(Base):
         server_default='queued'
     )
     verification_status = Column(
-        Enum('pending_review', 'doctor_verified', 'rejected', name='prescription_verification_status'),
+        Enum('pending_review', 'doctor_verified', 'verified', 'rejected', name='prescription_verification_status'),
         nullable=False,
         server_default='pending_review'
     )

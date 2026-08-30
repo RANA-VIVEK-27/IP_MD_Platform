@@ -73,14 +73,16 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
   }
 
   if (!res.ok) {
+    let detail = `Request failed (${res.status})`;
+    try { const e = await res.json(); detail = e.detail || detail; } catch {}
     if (res.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('ipmd_access_token');
       localStorage.removeItem('ipmd_refresh_token');
       localStorage.removeItem('ipmd_user');
-      window.location.href = '/login';
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/patient/login' && window.location.pathname !== '/professional/login') {
+        window.location.href = '/login';
+      }
     }
-    let detail = `Request failed (${res.status})`;
-    try { const e = await res.json(); detail = e.detail || detail; } catch {}
     throw new ApiError(res.status, detail);
   }
   if (res.status === 204) return {} as T;
@@ -126,6 +128,10 @@ export const ApiClient = {
     apiRequest<FieldEditResponse>(`/prescriptions/${rxId}/fields/${fieldId}`, {
       method: 'PATCH', body: JSON.stringify({ value, reason }),
     }),
+  createDoctorPrescription: (data: { patient_id: string; medicines: { field_name: string; value: string }[]; report_id?: string; notes?: string }) =>
+    apiRequest<{ prescription_id: string; document_id: string; status: string; message: string }>('/prescriptions/create', {
+      method: 'POST', body: JSON.stringify(data),
+    }),
 
   // Reports
   uploadReport: (file: File, reportType?: string) => {
@@ -137,6 +143,14 @@ export const ApiClient = {
   listReports: (params?: Record<string, string | number>) =>
     apiRequest<ReportListResponse>(`/reports${qs(params)}`),
   getReportDetail: (id: string) => apiRequest<ReportDetail>(`/reports/${id}`),
+  grantReportAccess: (reportId: string, doctorId: string) =>
+    apiRequest<{ message: string; grant_id: string }>('/reports/grant-access', {
+      method: 'POST', body: JSON.stringify({ report_id: reportId, doctor_id: doctorId }),
+    }),
+  listReportDoctors: () =>
+    apiRequest<{ user_id: string; full_name: string; email: string }[]>('/reports/doctors'),
+  getReportGrantedDoctors: (reportId: string) =>
+    apiRequest<{ grant_id: string; doctor_id: string; doctor_name: string; doctor_email: string; granted_at: string }[]>(`/reports/${reportId}/granted-doctors`),
 
   // Verification (Doctor)
   getVerificationQueue: (params?: Record<string, string | number>) =>
@@ -173,6 +187,14 @@ export const ApiClient = {
     }),
   getCart: (cartId: string) =>
     apiRequest<CartDetail>(`/cart/${cartId}`),
+  updateCartItem: (cartId: string, itemId: string, quantity: number) =>
+    apiRequest<{ message: string }>(`/cart/${cartId}/items/${itemId}`, {
+      method: 'PATCH', body: JSON.stringify({ quantity }),
+    }),
+  removeCartItem: (cartId: string, itemId: string) =>
+    apiRequest<{ message: string }>(`/cart/${cartId}/items/${itemId}`, {
+      method: 'DELETE',
+    }),
 
   // Addresses
   listAddresses: () =>
@@ -261,6 +283,10 @@ export const ApiClient = {
     apiRequest<AccountActionResponse>(`/user-admin/accounts/${userId}/reinstate`, {
       method: 'POST', body: JSON.stringify({ reason_code: reasonCode }),
     }),
+  approveAccount: (userId: string, reasonCode: string) =>
+    apiRequest<AccountActionResponse>(`/user-admin/accounts/${userId}/approve`, {
+      method: 'POST', body: JSON.stringify({ reason_code: reasonCode }),
+    }),
 
   // Super Admin
   listAdminAccounts: (params?: Record<string, string | number>) =>
@@ -283,6 +309,50 @@ export const ApiClient = {
     }),
   queryAuditLogs: (params?: Record<string, string | number>) =>
     apiRequest<AuditLogQueryResponse>(`/super-admin/audit-logs${qs(params)}`),
+
+  // ── Pharmacy Staff ──────────────────────────────
+  getPharmacyDashboard: () =>
+    apiRequest<import('./types').PharmacyDashboard>('/pharmacy/dashboard'),
+  getPharmacistDashboard: () =>
+    apiRequest<any>('/pharmacy/pharmacist/dashboard'),
+  listPharmacistPrescriptions: (params?: Record<string, string | number>) =>
+    apiRequest<any>(`/pharmacy/pharmacist/prescriptions${qs(params)}`),
+  reviewPharmacistPrescription: (prescriptionId: string, data: { action: 'approve' | 'reject'; notes?: string }) =>
+    apiRequest<any>(`/pharmacy/pharmacist/prescriptions/${prescriptionId}/review`, { method: 'POST', body: JSON.stringify(data) }),
+  listPharmacyMedicines: (params?: Record<string, string | number>) =>
+    apiRequest<import('./types').PharmacyMedicineListResponse>(`/pharmacy/medicines${qs(params)}`),
+  getPharmacyMedicine: (id: string) =>
+    apiRequest<import('./types').PharmacyMedicine>(`/pharmacy/medicines/${id}`),
+  createPharmacyMedicine: (data: { standard_identifier: string; name: string; generic_name?: string; schedule?: string; manufacturer?: string; dosage_form?: string; strength?: string; pack_size?: string; description?: string; side_effects?: string; contraindications?: string; storage_conditions?: string; drug_interactions?: string }) =>
+    apiRequest<import('./types').PharmacyMedicine>('/pharmacy/medicines', { method: 'POST', body: JSON.stringify(data) }),
+  updatePharmacyMedicine: (id: string, data: { name?: string; generic_name?: string; schedule?: string; manufacturer?: string; dosage_form?: string; strength?: string; pack_size?: string; description?: string; side_effects?: string; contraindications?: string; storage_conditions?: string; drug_interactions?: string }) =>
+    apiRequest<import('./types').PharmacyMedicine>(`/pharmacy/medicines/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePharmacyMedicine: (id: string) =>
+    apiRequest<{ message: string }>(`/pharmacy/medicines/${id}`, { method: 'DELETE' }),
+  listPharmacyInventory: (params?: Record<string, string | number>) =>
+    apiRequest<import('./types').PharmacyStockListResponse>(`/pharmacy/inventory${qs(params)}`),
+  getPharmacyStock: (id: string) =>
+    apiRequest<import('./types').PharmacyStockItem>(`/pharmacy/inventory/${id}`),
+  createPharmacyStock: (data: { medicine_id: string; batch_number?: string; expiry_date?: string; quantity: number; price: number }) =>
+    apiRequest<import('./types').PharmacyStockItem>('/pharmacy/inventory', { method: 'POST', body: JSON.stringify(data) }),
+  updatePharmacyStock: (id: string, data: { batch_number?: string; expiry_date?: string; quantity?: number; price?: number }) =>
+    apiRequest<import('./types').PharmacyStockItem>(`/pharmacy/inventory/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePharmacyStock: (id: string) =>
+    apiRequest<{ message: string }>(`/pharmacy/inventory/${id}`, { method: 'DELETE' }),
+  listPharmacyOrders: (params?: Record<string, string | number>) =>
+    apiRequest<import('./types').PharmacyOrderListResponse>(`/pharmacy/orders${qs(params)}`),
+  getPharmacyOrderDetail: (id: string) =>
+    apiRequest<import('./types').PharmacyOrderDetail>(`/pharmacy/orders/${id}`),
+  acceptPharmacyOrder: (id: string) =>
+    apiRequest<{ order_id: string; status: string; message: string }>(`/pharmacy/orders/${id}/accept`, { method: 'POST', body: '{}' }),
+  dispatchPharmacyOrder: (id: string) =>
+    apiRequest<{ order_id: string; status: string; message: string }>(`/pharmacy/orders/${id}/dispatch`, { method: 'POST', body: '{}' }),
+  collectPharmacyPayment: (id: string) =>
+    apiRequest<{ order_id: string; payment_status: string; message: string }>(`/pharmacy/orders/${id}/collect-payment`, { method: 'POST', body: '{}' }),
+  listPharmacyFulfillments: (params?: Record<string, string | number>) =>
+    apiRequest<import('./types').PharmacyFulfillmentListResponse>(`/pharmacy/fulfillment${qs(params)}`),
+  updatePharmacyFulfillment: (id: string, newStatus: string) =>
+    apiRequest<import('./types').PharmacyFulfillmentItem>(`/pharmacy/fulfillment/${id}`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) }),
 
   // Documents (M12)
   uploadDocument: (file: File, docType: string = "documents") => {
@@ -334,6 +404,69 @@ export const ApiClient = {
     }),
   getChatHistory: (sessionId: string) =>
     apiRequest<ChatHistoryResponse>(`/ai/chat/sessions/${sessionId}/messages`),
+
+  // ─── Professional Onboarding ────────────────────────────────────────────
+
+  getProfessionalStatus: () =>
+    apiRequest<any>('/professional/status', { method: 'GET' }),
+
+  listPendingVerifications: (params?: { request_type?: string; status?: string; limit?: number; offset?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.request_type) query.set('request_type', params.request_type);
+    if (params?.status) query.set('status', params.status);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest<any>(`/professional/verification/pending${qs ? '?' + qs : ''}`, { method: 'GET' });
+  },
+
+  reviewVerification: (requestId: string, decision: string, rejectionReason?: string) => {
+    const query = new URLSearchParams({ decision });
+    if (rejectionReason) query.set('rejection_reason', rejectionReason);
+    return apiRequest<any>(`/professional/verification/${requestId}/review?${query.toString()}`, { method: 'POST' });
+  },
+
+  requestInformation: (requestId: string, reason: string, requestedFields?: string[], requestedDocuments?: string[]) =>
+    apiRequest<any>(`/professional/verification/${requestId}/request-info`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, requested_fields: requestedFields, requested_documents: requestedDocuments }),
+    }),
+
+  resubmitApplication: (applicationData: Record<string, unknown>) =>
+    apiRequest<any>('/professional/verification/resubmit', {
+      method: 'POST',
+      body: JSON.stringify({ application_data: applicationData }),
+    }),
+
+  addCredential: (data: { credential_type: string; credential_name?: string; issuing_authority?: string; registration_number?: string; state?: string; issue_date?: string; expiry_date?: string; document_id?: string }) =>
+    apiRequest<any>('/professional/credentials', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  listCredentials: () =>
+    apiRequest<any>('/professional/credentials', { method: 'GET' }),
+
+  verifyCredential: (credentialId: string, status: string, notes?: string) =>
+    apiRequest<any>(`/professional/credentials/${credentialId}/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ status, notes }),
+    }),
+
+  inviteStaff: (orgId: string, email: string, role: string = 'staff') =>
+    apiRequest<any>(`/professional/organizations/${orgId}/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    }),
+
+  acceptInvitation: (token: string) =>
+    apiRequest<any>(`/professional/invitations/${token}/accept`, { method: 'POST' }),
+
+  revokeMembership: (membershipId: string) =>
+    apiRequest<any>(`/professional/memberships/${membershipId}/revoke`, { method: 'POST' }),
+
+  listOrgMembers: (orgId: string) =>
+    apiRequest<any>(`/professional/organizations/${orgId}/members`, { method: 'GET' }),
 };
 
 export const apiClient = ApiClient;

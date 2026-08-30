@@ -1,11 +1,12 @@
 import uuid
 from typing import Optional, List
-from fastapi import APIRouter, Depends, Header, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.identity import User, SavedAddress
+from app.models.orders import Cart, CartItem as CartItemModel
 from app.api.deps import get_current_user, require_roles
 from app.services.order_service import OrderService
 from app.schemas.orders import (
@@ -99,6 +100,48 @@ def add_item_to_cart(
         line_item_id=item.cart_item_id,
         checkout_blocked=checkout_blocked
     )
+
+
+class CartItemUpdateRequest(BaseModel):
+    quantity: int = Field(..., ge=1)
+
+
+@router.patch(
+    "/cart/{cart_id}/items/{cart_item_id}",
+)
+def update_cart_item(
+    cart_id: uuid.UUID,
+    cart_item_id: uuid.UUID,
+    req: CartItemUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("patient"))
+):
+    """Update quantity of a cart item."""
+    cart = db.query(Cart).filter(Cart.cart_id == cart_id).first()
+    if not cart or cart.patient_id != current_user.user_id:
+        raise HTTPException(status_code=404, detail="CART_NOT_FOUND")
+    item = db.query(CartItemModel).filter(
+        CartItemModel.cart_item_id == cart_item_id,
+        CartItemModel.cart_id == cart_id,
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="CART_ITEM_NOT_FOUND")
+    item.quantity = req.quantity
+    db.commit()
+    return {"message": "Updated", "cart_item_id": str(cart_item_id), "quantity": item.quantity}
+
+
+@router.delete(
+    "/cart/{cart_id}/items/{cart_item_id}",
+)
+def remove_cart_item(
+    cart_id: uuid.UUID,
+    cart_item_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("patient"))
+):
+    """Remove an item from the cart."""
+    return OrderService.remove_item_from_cart(db, current_user.user_id, cart_id, cart_item_id)
 
 
 @router.get(

@@ -14,6 +14,8 @@ from app.api.v1.payments import router as payments_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.documents import router as documents_router
 from app.api.v1.ai import router as ai_router
+from app.api.v1.pharmacy import router as pharmacy_router
+from app.api.v1.professional import router as professional_router
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(auth_router)
@@ -31,4 +33,6 @@ api_v1_router.include_router(payments_router)
 api_v1_router.include_router(notifications_router)
 api_v1_router.include_router(documents_router)
 api_v1_router.include_router(ai_router)
+api_v1_router.include_router(pharmacy_router)
+api_v1_router.include_router(professional_router)
 

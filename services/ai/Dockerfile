@@ -8,9 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libjpeg62-turbo \
     zlib1g \
+    libgl1 \
+    libglib2.0-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir fastapi uvicorn pydantic python-dotenv httpx pytesseract Pillow
+RUN pip install --no-cache-dir fastapi uvicorn pydantic python-dotenv httpx pytesseract Pillow setuptools "paddlepaddle==3.0.0" "paddleocr==2.9.1"
 
 COPY . .
 

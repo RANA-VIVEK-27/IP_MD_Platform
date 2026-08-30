@@ -5,17 +5,52 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class PharmacyDetails(BaseModel):
     pharmacy_name: str
+    trade_name: Optional[str] = None
+    business_type: Optional[str] = None
     address: Dict[str, Any]
     gstin: Optional[str] = None
 
+class MedicalRegistration(BaseModel):
+    registration_authority: Optional[str] = None
+    state_medical_council: Optional[str] = None
+    medical_registration_number: Optional[str] = None
+    registration_date: Optional[str] = None
+
+class QualificationInfo(BaseModel):
+    primary_qualification: Optional[str] = None
+    university: Optional[str] = None
+    graduation_year: Optional[str] = None
+    specialization: Optional[str] = None
+    additional_qualifications: Optional[List[Dict[str, Any]]] = None
+
+class PracticeInfo(BaseModel):
+    clinic_hospital: Optional[str] = None
+    facility_association: Optional[str] = None
+    practice_address: Optional[Dict[str, Any]] = None
+    consultation_type: Optional[str] = None
+    professional_contact: Optional[str] = None
+
+class PharmacyRegistration(BaseModel):
+    state_pharmacy_council: Optional[str] = None
+    registration_number: Optional[str] = None
+    registration_date: Optional[str] = None
+    expiry_date: Optional[str] = None
+
 class UserRegisterRequest(BaseModel):
-    role: str = Field(..., description="One of 7 roles: patient, doctor, pharmacy_staff_owned, partner_pharmacy, admin, user_admin, super_admin")
+    role: str = Field(..., description="One of: patient, doctor, pharmacist, pharmacy_admin, pharmacy_staff_owned, partner_pharmacy")
     full_name: str
     email: Optional[str] = None
     phone: Optional[str] = None
     password: Optional[str] = Field(None, min_length=6)
     license_number: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    address: Optional[Dict[str, Any]] = None
+    medical_registration: Optional[MedicalRegistration] = None
+    qualification: Optional[QualificationInfo] = None
+    practice_info: Optional[PracticeInfo] = None
+    pharmacy_registration: Optional[PharmacyRegistration] = None
     pharmacy_details: Optional[PharmacyDetails] = None
+    auto_activate: Optional[bool] = Field(None, description="If true, account is immediately active (admin use only)")
 
 class EmailVerifyRequest(BaseModel):
     email: str

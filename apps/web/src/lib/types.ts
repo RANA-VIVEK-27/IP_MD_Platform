@@ -1,6 +1,8 @@
 export type UserRole =
   | 'patient'
   | 'doctor'
+  | 'pharmacist'
+  | 'pharmacy_admin'
   | 'pharmacy_staff_owned'
   | 'partner_pharmacy'
   | 'admin'
@@ -48,10 +50,26 @@ export interface ExtractedField {
   edited_reason?: string | null;
 }
 
+export interface MedicineItem {
+  sequence: number;
+  raw_name: string;
+  name: string;
+  strength?: string | null;
+  dosage_instruction?: string | null;
+  duration?: string | null;
+  quantity?: number | null;
+  ocr_confidence: number;
+  parser_confidence: number;
+  validation_confidence: number;
+  overall_confidence: number;
+  needs_review: boolean;
+}
+
 export interface PrescriptionSummary {
   prescription_id: string;
   patient_id: string;
   doctor_id?: string | null;
+  doctor_name?: string | null;
   document_id: string;
   extraction_status: 'queued' | 'processing' | 'extracted' | 'needs_review' | 'failed';
   verification_status: 'pending_review' | 'doctor_verified' | 'rejected';
@@ -61,6 +79,26 @@ export interface PrescriptionSummary {
 export interface PrescriptionDetail extends PrescriptionSummary {
   is_ai_generated: boolean;
   extracted_fields: ExtractedField[];
+  medicines: MedicineItem[];
+  raw_ocr_text?: string | null;
+  overall_confidence?: number | null;
+  needs_review?: boolean | null;
+  doctor_name?: string | null;
+  doctor_phone?: string | null;
+  doctor_reg_no?: string | null;
+  doctor_qualification?: string | null;
+  doctor_specialization?: string | null;
+  clinic_name?: string | null;
+  clinic_address?: string | null;
+  patient_name?: string | null;
+  patient_phone?: string | null;
+  patient_age?: string | null;
+  patient_gender?: string | null;
+  patient_mrd?: string | null;
+  prescription_date?: string | null;
+  patient_note?: string | null;
+  diagnosis?: string | null;
+  document_url?: string | null;
 }
 
 export interface PrescriptionUploadResponse {
@@ -91,6 +129,11 @@ export interface Medicine {
   price?: number | null;
   in_stock: boolean;
   total_stock: number;
+  manufacturer?: string | null;
+  dosage_form?: string | null;
+  strength?: string | null;
+  pack_size?: string | null;
+  description?: string | null;
 }
 
 export interface MedicineDetail extends Medicine {
@@ -207,7 +250,13 @@ export interface OrderSummary {
   created_at: string;
 }
 
-export interface OrderDetail extends OrderSummary {
+export interface OrderDetail {
+  order_id: string;
+  patient_id: string;
+  status: 'placed' | 'processing' | 'dispatched' | 'delivered' | 'cancelled';
+  payment_status: 'pending' | 'captured' | 'refunded' | 'failed';
+  total_amount: number;
+  created_at: string;
   cart_id: string;
   delivery_address_id: string;
   line_items: OrderLineItem[];
@@ -337,8 +386,29 @@ export interface VerificationAuditEntry {
 export interface DoctorKYCItem {
   user_id: string;
   full_name: string;
+  email?: string;
+  phone?: string;
   license_number: string;
   submitted_at: string;
+  medical_registration?: {
+    medical_registration_number?: string;
+    state_medical_council?: string;
+    registration_authority?: string;
+    registration_date?: string;
+  };
+  qualification?: {
+    primary_qualification?: string;
+    university?: string;
+    specialization?: string;
+    graduation_year?: string;
+  };
+  practice_info?: {
+    clinic_hospital?: string;
+    consultation_type?: string;
+    facility_association?: string;
+    practice_address?: { full_address?: string };
+  };
+  address?: { full_address?: string };
 }
 
 export interface DoctorKYCListResponse {
@@ -385,8 +455,9 @@ export interface PlatformSettingsResponse {
 }
 
 export interface PlatformSettingsUpdateResponse {
-  success: boolean;
-  version: number;
+  updated_fields: string[];
+  config_version: number;
+  audit_log_id: string;
 }
 
 export interface AdminAccount {
@@ -399,16 +470,14 @@ export interface AdminAccount {
 
 export interface AdminCreateResponse {
   user_id: string;
-  full_name: string;
-  email?: string;
   role: string;
-  permissions: string[];
+  audit_log_id: string;
 }
 
 export interface AdminRevokeResponse {
-  success: boolean;
-  message: string;
-  admin_id: string;
+  user_id: string;
+  status: string;
+  audit_log_id: string;
 }
 
 export interface AdminListItem {
@@ -436,10 +505,9 @@ export interface AuditLogQueryResponse extends PaginatedResponse<AuditLogEntry> 
 
 export interface OverdueVerificationItem {
   prescription_id: string;
-  patient_ref: string;
   queued_at: string;
   hours_overdue: number;
-  assigned_doctor?: string | null;
+  assigned_doctor_id?: string | null;
 }
 
 export interface OverdueVerificationResponse {
@@ -450,18 +518,6 @@ export interface ComplianceOverrideResponse {
   override_id: string;
   order_id: string;
   audit_log_id: string;
-}
-
-export interface SavedAddress {
-  address_id: string;
-  user_id: string;
-  label?: string;
-  line1: string;
-  line2?: string;
-  city: string;
-  state: string;
-  pincode: string;
-  is_default: boolean;
 }
 
 export interface ReportDetail {
@@ -583,7 +639,7 @@ export interface ConsentResponse {
   user_id: string;
   consent_type: string;
   consent_given: boolean;
-  timestamp: string;
+  recorded_at: string;
 }
 
 export interface ChatSessionResponse {
@@ -629,5 +685,317 @@ export interface ChatHistoryResponse {
   session_id: string;
   messages: ChatMessageItem[];
   total: number;
+}
+
+// ── Pharmacy Staff Types ──────────────────────────
+
+export interface PharmacyDashboard {
+  total_medicines: number;
+  total_stock_units: number;
+  low_stock_count: number;
+  expiring_soon_count: number;
+  pending_orders: number;
+  dispatched_orders: number;
+  delivered_orders: number;
+  cancelled_orders: number;
+  recent_orders: PharmacyOrderSummary[];
+  inventory_summary: PharmacyInventorySummaryItem[];
+}
+
+export interface PharmacyOrderSummary {
+  order_id: string;
+  patient_name: string;
+  status: string;
+  payment_status: string;
+  total_amount: number;
+  items_count: number;
+  created_at: string;
+}
+
+export interface PharmacyInventorySummaryItem {
+  medicine_id: string;
+  name: string;
+  total_quantity: number;
+  batch_count: number;
+  is_low: boolean;
+}
+
+export interface PharmacyMedicine {
+  medicine_id: string;
+  standard_identifier: string;
+  name: string;
+  generic_name?: string | null;
+  schedule: string;
+  manufacturer?: string | null;
+  dosage_form?: string | null;
+  strength?: string | null;
+  pack_size?: string | null;
+  description?: string | null;
+  side_effects?: string | null;
+  contraindications?: string | null;
+  storage_conditions?: string | null;
+  drug_interactions?: string | null;
+  total_stock: number;
+  in_stock: boolean;
+  created_at: string;
+}
+
+export interface PharmacyMedicineListResponse {
+  data: PharmacyMedicine[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}
+
+export interface PharmacyStockItem {
+  stock_id: string;
+  medicine_id: string;
+  medicine_name: string;
+  batch_number: string;
+  expiry_date: string;
+  quantity: number;
+  price: number;
+  is_expired: boolean;
+  is_expiring_soon: boolean;
+  is_low_stock: boolean;
+  updated_at: string;
+}
+
+export interface PharmacyStockListResponse {
+  data: PharmacyStockItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}
+
+export interface PharmacyOrderItem {
+  order_id: string;
+  patient_id: string;
+  patient_name: string;
+  status: string;
+  payment_status: string;
+  total_amount: number;
+  items_count: number;
+  fulfillment_statuses: string[];
+  delivery_address?: { full?: string; street?: string; city?: string; state?: string; pincode?: string } | null;
+  created_at: string;
+}
+
+export interface PharmacyOrderListResponse {
+  data: PharmacyOrderItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}
+
+export interface PharmacyOrderDetail {
+  order_id: string;
+  patient_id: string;
+  patient_name: string;
+  status: string;
+  payment_status: string;
+  total_amount: number;
+  items: PharmacyOrderLineItem[];
+  created_at: string;
+}
+
+export interface PharmacyOrderLineItem {
+  line_item_id: string;
+  medicine_id: string;
+  medicine_name: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  status: string;
+  fulfillment?: {
+    fulfillment_record_id?: string | null;
+    source_type?: string | null;
+    status?: string | null;
+    dispatched_at?: string | null;
+  } | null;
+}
+
+export interface PharmacyFulfillmentItem {
+  fulfillment_record_id: string;
+  line_item_id: string;
+  order_id: string | null;
+  medicine_name: string;
+  quantity: number;
+  source_type: string;
+  status: string;
+  dispatched_at: string | null;
+  delivered_at: string | null;
+}
+
+export interface PharmacyFulfillmentListResponse {
+  data: PharmacyFulfillmentItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}
+
+// ─── Professional Onboarding Types ─────────────────────────────────────────
+
+export type ProfessionalStatus = 'draft' | 'submitted' | 'under_review' | 'needs_information' | 'resubmitted' | 'verified' | 'active' | 'suspended' | 'rejected' | 'expired';
+
+export type CredentialStatus = 'pending' | 'verified' | 'rejected' | 'expired';
+
+export type OrganizationStatus = 'pending' | 'active' | 'suspended' | 'rejected';
+
+export type MembershipStatus = 'invited' | 'pending' | 'active' | 'suspended' | 'revoked';
+
+export type VerificationRequestStatus = 'draft' | 'submitted' | 'under_review' | 'needs_information' | 'resubmitted' | 'verified' | 'rejected';
+
+export interface ProfessionalCredential {
+  credential_id: string;
+  credential_type: string;
+  credential_name?: string;
+  issuing_authority?: string;
+  registration_number?: string;
+  state?: string;
+  issue_date?: string;
+  expiry_date?: string;
+  document_id?: string;
+  status: CredentialStatus;
+  verification_method?: string;
+  verified_at?: string;
+  verified_by?: string;
+  verification_notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Organization {
+  organization_id: string;
+  name: string;
+  trade_name?: string;
+  organization_type: string;
+  business_type?: string;
+  address?: Record<string, unknown>;
+  contact_email?: string;
+  contact_phone?: string;
+  gstin?: string;
+  status: OrganizationStatus;
+  verified_at?: string;
+  verified_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrganizationMembership {
+  membership_id: string;
+  user_id?: string;
+  organization_id: string;
+  role: string;
+  status: MembershipStatus;
+  invited_by?: string;
+  invited_at?: string;
+  accepted_at?: string;
+  revoked_at?: string;
+  invitation_token?: string;
+  invitation_expires_at?: string;
+  created_at: string;
+}
+
+export interface VerificationRequest {
+  request_id: string;
+  user_id: string;
+  user_name?: string;
+  user_email?: string;
+  request_type: string;
+  status: VerificationRequestStatus;
+  application_data?: Record<string, unknown>;
+  rejection_reason?: string;
+  requested_info?: Record<string, unknown>;
+  submitted_at?: string;
+  reviewed_at?: string;
+  reviewed_by?: string;
+  decision_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProfessionalStatusResponse {
+  user_id: string;
+  role: string;
+  status: string;
+  professional_status?: ProfessionalStatus;
+  verification_request?: {
+    request_id: string;
+    request_type: string;
+    status: VerificationRequestStatus;
+    submitted_at?: string;
+    reviewed_at?: string;
+    rejection_reason?: string;
+    requested_info?: Record<string, unknown>;
+  };
+  credentials: Array<{
+    credential_id: string;
+    credential_type: string;
+    credential_name?: string;
+    registration_number?: string;
+    status: CredentialStatus;
+    verified_at?: string;
+  }>;
+  organizations: Array<{
+    membership_id: string;
+    organization_id: string;
+    role: string;
+    status: MembershipStatus;
+  }>;
+}
+
+export interface MedicalRegistration {
+  registration_authority?: string;
+  state_medical_council?: string;
+  medical_registration_number?: string;
+  registration_date?: string;
+}
+
+export interface QualificationInfo {
+  primary_qualification?: string;
+  university?: string;
+  graduation_year?: string;
+  specialization?: string;
+  additional_qualifications?: Array<Record<string, unknown>>;
+}
+
+export interface PracticeInfo {
+  clinic_hospital?: string;
+  facility_association?: string;
+  practice_address?: Record<string, unknown>;
+  consultation_type?: string;
+  professional_contact?: string;
+}
+
+export interface PharmacyRegistration {
+  state_pharmacy_council?: string;
+  registration_number?: string;
+  registration_date?: string;
+  expiry_date?: string;
+}
+
+export interface PharmacistDetails {
+  qualification?: QualificationInfo;
+  pharmacy_registration?: PharmacyRegistration;
+}
+
+export interface PharmacyRegistrationDetails {
+  pharmacy_name: string;
+  trade_name?: string;
+  business_type?: string;
+  address: Record<string, unknown>;
+  gstin?: string;
+  license_type?: string;
+  license_number?: string;
+  license_issuing_authority?: string;
+  license_issue_date?: string;
+  license_expiry_date?: string;
+  responsible_pharmacist_name?: string;
+  responsible_pharmacist_reg_no?: string;
 }
 

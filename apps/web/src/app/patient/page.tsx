@@ -6,7 +6,7 @@ import { useAuth } from '../../lib/auth-context';
 import { ApiClient } from '../../lib/api';
 import { StatusBadge } from '../../components/Badges';
 import { Avatar } from '../../components/Avatar';
-import { IconUpload, IconSparkles, IconShoppingCart, IconFileText, IconClock, IconChevronRight } from '../../components/Icons';
+import { IconUpload, IconSparkles, IconShoppingCart, IconFileText, IconClock, IconChevronRight, IconHeartbeat, IconActivity, IconPrescription } from '../../components/Icons';
 import { PrescriptionSummary, OrderSummary } from '../../lib/types';
 
 const ORDER_STEPS = ['placed', 'processing', 'dispatched', 'delivered'];
@@ -39,28 +39,19 @@ export default function PatientHomePage() {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [loadingRx, setLoadingRx] = useState(true);
   const [loadingOrders, setLoadingOrders] = useState(true);
-  const [errorRx, setErrorRx] = useState('');
-  const [errorOrders, setErrorOrders] = useState('');
 
   useEffect(() => {
     async function load() {
       try {
         const rxRes = await ApiClient.listPrescriptions({ limit: 5 });
         setPrescriptions(rxRes.data || []);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Failed to load prescriptions';
-        setErrorRx(msg);
-      } finally {
+      } catch {} finally {
         setLoadingRx(false);
       }
-
       try {
         const ordRes = await ApiClient.listOrders({ limit: 5 });
         setOrders(ordRes.data || []);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Failed to load orders';
-        setErrorOrders(msg);
-      } finally {
+      } catch {} finally {
         setLoadingOrders(false);
       }
     }
@@ -68,87 +59,239 @@ export default function PatientHomePage() {
   }, []);
 
   const activeOrders = orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled');
+  const rxCount = prescriptions.length;
+  const orderCount = orders.length;
 
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--sp-6)' }}>
-      <div className="page-header">
-        <div className="page-header-row">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)' }}>
+    <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--sp-6)' }}>
+      {/* Welcome Banner */}
+      <div style={{
+        background: 'linear-gradient(135deg, #0B6E6B 0%, #095A58 50%, #0F2B3C 100%)',
+        borderRadius: 'var(--radius-xl)',
+        padding: 'var(--sp-8) var(--sp-10)',
+        color: '#fff',
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 80% 30%, rgba(20, 163, 199, 0.15) 0%, transparent 50%)' }} />
+        <div style={{ position: 'absolute', top: '10%', right: '8%', fontSize: '140px', fontWeight: 200, color: 'rgba(255,255,255,0.04)', lineHeight: 1 }}>+</div>
+        <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--sp-4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-5)' }}>
             <Avatar name={user?.full_name || 'Patient'} size="lg" />
             <div>
-              <h1>Welcome back, {firstName}</h1>
-              <p className="page-subtitle">Manage your prescriptions, diagnostic reports, and medicine deliveries.</p>
+              <h1 style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 'var(--sp-1)' }}>
+                Welcome back, {firstName}
+              </h1>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 }}>
+                Manage your prescriptions, diagnostic reports, and medicine deliveries.
+              </p>
             </div>
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+            <Link href="/patient/upload" style={{
+              padding: 'var(--sp-3) var(--sp-5)',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(255,255,255,0.15)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              color: '#fff',
+              fontWeight: 600,
+              fontSize: 'var(--text-sm)',
+              textDecoration: 'none',
+              display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
+              transition: 'all 200ms',
+            }}>
+              <IconUpload size={16} /> Upload Prescription
+            </Link>
+            <Link href="/patient/chat" style={{
+              padding: 'var(--sp-3) var(--sp-5)',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--primary)',
+              color: '#fff',
+              fontWeight: 600,
+              fontSize: 'var(--text-sm)',
+              textDecoration: 'none',
+              display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+              transition: 'all 200ms',
+            }}>
+              <IconSparkles size={16} /> AI Assistant
+            </Link>
           </div>
         </div>
       </div>
 
-      <div className="grid-2 animate-fade-in-up delay-1">
-        <Link href="/patient/upload" style={{ textDecoration: 'none' }}>
-          <div className="card card-interactive" style={{ background: 'linear-gradient(135deg, var(--primary-light) 0%, var(--bg-soft) 100%)', color: 'var(--text-primary)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '180px', padding: 'var(--sp-6)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ display: 'inline-flex', padding: 'var(--sp-3)', background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)', marginBottom: 'var(--sp-3)', color: 'var(--primary)', boxShadow: 'var(--shadow-xs)' }}>
-                <IconUpload size={22} />
+      {/* KPI Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-4)' }}
+        className="kpi-grid"
+      >
+        {[
+          { label: 'Prescriptions', value: rxCount, icon: <IconPrescription size={20} />, color: 'var(--primary)', bg: 'var(--primary-light)' },
+          { label: 'Active Orders', value: activeOrders.length, icon: <IconActivity size={20} />, color: 'var(--blue)', bg: 'var(--blue-light)' },
+          { label: 'Total Orders', value: orderCount, icon: <IconShoppingCart size={20} />, color: 'var(--navy)', bg: 'var(--navy-light)' },
+          { label: 'Health Score', value: '—', icon: <IconHeartbeat size={20} />, color: 'var(--cyan)', bg: 'var(--cyan-light)' },
+        ].map((kpi, i) => (
+          <div key={i} className="medical-card-glass" style={{
+            padding: 'var(--sp-5)',
+            borderRadius: 'var(--radius-lg)',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border)',
+            display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: kpi.color, borderRadius: '3px 3px 0 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{kpi.label}</p>
+                <p style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, color: 'var(--text-heading)', letterSpacing: '-0.02em', marginTop: 'var(--sp-1)' }}>{kpi.value}</p>
               </div>
-              <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-heading)', marginBottom: 'var(--sp-1)', lineHeight: 1.4 }}>Upload Prescription</h2>
-              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>AI OCR extracts medicine names, dosages, and lab markers in seconds.</p>
+              <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: kpi.bg, color: kpi.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {kpi.icon}
+              </div>
             </div>
-            <div className="btn btn-primary btn-sm" style={{ alignSelf: 'flex-start', marginTop: 'var(--sp-4)' }}>Upload Document<IconChevronRight size={14} /></div>
+          </div>
+        ))}
+      </div>
+
+      <style>{`
+        @media (max-width: 768px) {
+          .kpi-grid { grid-template-columns: 1fr 1fr !important; }
+        }
+      `}</style>
+
+      {/* Action Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-4)' }}>
+        <Link href="/patient/upload" style={{ textDecoration: 'none' }}>
+          <div className="medical-card-glass" style={{
+            padding: 'var(--sp-6)',
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-surface)',
+            display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)',
+            transition: 'all 200ms', cursor: 'pointer',
+            position: 'relative', overflow: 'hidden',
+          }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
+          >
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: 'linear-gradient(90deg, var(--primary), var(--cyan))' }} />
+            <div style={{ width: '48px', height: '48px', borderRadius: 'var(--radius-lg)', background: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <IconUpload size={22} />
+            </div>
+            <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--text-heading)', lineHeight: 1.3 }}>Upload Prescription</h2>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>AI OCR extracts medicine names, dosages, and lab markers in seconds.</p>
+            <div style={{ marginTop: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', color: 'var(--primary)', fontWeight: 600, fontSize: 'var(--text-sm)' }}>
+              Get Started <IconChevronRight size={14} />
+            </div>
           </div>
         </Link>
         <Link href="/patient/chat" style={{ textDecoration: 'none' }}>
-          <div className="card card-interactive" style={{ background: 'linear-gradient(135deg, var(--blue-light) 0%, var(--bg-page) 100%)', color: 'var(--text-primary)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '180px', padding: 'var(--sp-6)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ display: 'inline-flex', padding: 'var(--sp-3)', background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)', marginBottom: 'var(--sp-3)', color: 'var(--blue)', boxShadow: 'var(--shadow-xs)' }}>
-                <IconSparkles size={22} />
-              </div>
-              <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-heading)', marginBottom: 'var(--sp-1)', lineHeight: 1.4 }}>AI Health Assistant</h2>
-              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Get plain-language explanations of medications and wellness guidance.</p>
+          <div className="medical-card-glass" style={{
+            padding: 'var(--sp-6)',
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-surface)',
+            display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)',
+            transition: 'all 200ms', cursor: 'pointer',
+            position: 'relative', overflow: 'hidden',
+          }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
+          >
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: 'linear-gradient(90deg, var(--blue), var(--cyan))' }} />
+            <div style={{ width: '48px', height: '48px', borderRadius: 'var(--radius-lg)', background: 'var(--blue-light)', color: 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <IconSparkles size={22} />
             </div>
-            <div className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start', marginTop: 'var(--sp-4)' }}>Start Conversation<IconChevronRight size={14} /></div>
+            <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--text-heading)', lineHeight: 1.3 }}>AI Health Assistant</h2>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Get plain-language explanations of medications and wellness guidance.</p>
+            <div style={{ marginTop: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', color: 'var(--blue)', fontWeight: 600, fontSize: 'var(--text-sm)' }}>
+              Start Conversation <IconChevronRight size={14} />
+            </div>
           </div>
         </Link>
       </div>
 
+      {/* Quick Nav */}
       <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
-        <Link href="/patient/catalog" className="btn btn-secondary"><IconShoppingCart size={16} />Browse Catalog</Link>
-        <Link href="/patient/orders" className="btn btn-secondary"><IconClock size={16} />My Orders</Link>
-        <Link href="/patient/cart" className="btn btn-secondary"><IconShoppingCart size={16} />View Cart</Link>
+        {[
+          { href: '/patient/catalog', label: 'Browse Catalog', icon: <IconShoppingCart size={16} /> },
+          { href: '/patient/orders', label: 'My Orders', icon: <IconClock size={16} /> },
+          { href: '/patient/cart', label: 'View Cart', icon: <IconShoppingCart size={16} /> },
+        ].map((link) => (
+          <Link key={link.href} href={link.href} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-2)',
+            padding: 'var(--sp-2) var(--sp-4)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-surface)',
+            color: 'var(--text-primary)',
+            fontSize: 'var(--text-sm)',
+            fontWeight: 500,
+            textDecoration: 'none',
+            transition: 'all 150ms',
+          }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.color = 'var(--primary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+          >
+            {link.icon} {link.label}
+          </Link>
+        ))}
       </div>
 
+      {/* Active Orders */}
       <section>
-        <div className="card-header" style={{ marginBottom: 'var(--sp-4)' }}>
-          <h2 className="text-h2">Active Orders</h2>
-          <Link href="/patient/orders" className="btn btn-ghost btn-sm">View History<IconChevronRight size={14} /></Link>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+          <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--text-heading)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+            <IconActivity size={20} style={{ color: 'var(--primary)' }} /> Active Orders
+          </h2>
+          <Link href="/patient/orders" style={{ fontSize: 'var(--text-sm)', color: 'var(--primary)', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
+            View History <IconChevronRight size={14} />
+          </Link>
         </div>
         {loadingOrders ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
             {[1, 2].map(i => <div key={i} className="skeleton" style={{ height: '100px', borderRadius: 'var(--radius-lg)' }} />)}
           </div>
-        ) : errorOrders ? (
-          <div className="card" style={{ padding: 'var(--sp-5)', textAlign: 'center', color: 'var(--text-muted)' }}>{errorOrders}</div>
         ) : activeOrders.length === 0 ? (
-          <div className="empty-state" style={{ padding: 'var(--sp-8)' }}>
-            <div className="empty-state-icon"><IconClock size={28} /></div>
-            <h3>No active orders</h3>
-            <p>Your order history will appear here once you place an order.</p>
+          <div className="medical-card-glass" style={{ padding: 'var(--sp-8)', textAlign: 'center', borderRadius: 'var(--radius-lg)' }}>
+            <IconClock size={28} style={{ color: 'var(--text-muted)', margin: '0 auto var(--sp-3)' }} />
+            <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--text-heading)', marginBottom: 'var(--sp-1)' }}>No active orders</h3>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Your order history will appear here once you place an order.</p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
             {activeOrders.map((ord) => {
               const stepIdx = getStepIndex(ord.status);
               return (
-                <div key={ord.order_id} className="card" style={{ padding: 'var(--sp-5)' }}>
+                <div key={ord.order_id} className="medical-card-glass" style={{
+                  padding: 'var(--sp-5)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-surface)',
+                }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--sp-4)' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-1)' }}>
-                        <span style={{ fontWeight: 600, fontSize: 'var(--text-md)' }}>Order #{ord.order_id.slice(0, 8)}</span>
-                        <StatusBadge status={ord.status} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
+                      <div style={{ width: '44px', height: '44px', borderRadius: 'var(--radius-md)', background: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 'var(--text-sm)', flexShrink: 0 }}>
+                        #{ord.order_id.slice(0, 4)}
                       </div>
-                      <p className="text-caption">{ord.items_count} items · {formatAmount(ord.total_amount)}</p>
-                      <p className="text-caption" style={{ marginTop: 'var(--sp-1)' }}>Payment: {ord.payment_status}</p>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: '2px' }}>
+                          <span style={{ fontWeight: 600, fontSize: 'var(--text-md)' }}>Order #{ord.order_id.slice(0, 8)}</span>
+                          <StatusBadge status={ord.status} />
+                        </div>
+                        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{ord.items_count} items · {formatAmount(ord.total_amount)} · Payment: {ord.payment_status}</p>
+                      </div>
                     </div>
-                    <Link href="/patient/orders" className="btn btn-secondary btn-sm">Track</Link>
+                    <Link href="/patient/orders" style={{
+                      padding: 'var(--sp-2) var(--sp-3)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-surface)',
+                      color: 'var(--text-primary)',
+                      fontSize: 'var(--text-xs)',
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                    }}>Track</Link>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
                     {ORDER_STEPS.map((step, idx) => (
@@ -172,39 +315,61 @@ export default function PatientHomePage() {
         )}
       </section>
 
+      {/* Recent Prescriptions */}
       <section>
-        <div className="card-header" style={{ marginBottom: 'var(--sp-4)' }}>
-          <h2 className="text-h2">Recent Prescriptions</h2>
-          <Link href="/patient/upload" className="btn btn-ghost btn-sm">Upload New<IconChevronRight size={14} /></Link>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+          <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--text-heading)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+            <IconPrescription size={20} style={{ color: 'var(--primary)' }} /> Recent Prescriptions
+          </h2>
+          <Link href="/patient/upload" style={{ fontSize: 'var(--text-sm)', color: 'var(--primary)', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
+            Upload New <IconChevronRight size={14} />
+          </Link>
         </div>
         {loadingRx ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
             {[1, 2].map(i => <div key={i} className="skeleton" style={{ height: '64px', borderRadius: 'var(--radius-lg)' }} />)}
           </div>
-        ) : errorRx ? (
-          <div className="card" style={{ padding: 'var(--sp-5)', textAlign: 'center', color: 'var(--text-muted)' }}>{errorRx}</div>
         ) : prescriptions.length === 0 ? (
-          <div className="empty-state" style={{ padding: 'var(--sp-8)' }}>
-            <div className="empty-state-icon"><IconFileText size={28} /></div>
-            <h3>No prescriptions yet</h3>
-            <p>Upload your first prescription to get started.</p>
-            <Link href="/patient/upload" className="btn btn-primary">Upload Prescription</Link>
+          <div className="medical-card-glass" style={{ padding: 'var(--sp-8)', textAlign: 'center', borderRadius: 'var(--radius-lg)' }}>
+            <IconFileText size={28} style={{ color: 'var(--text-muted)', margin: '0 auto var(--sp-3)' }} />
+            <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--text-heading)', marginBottom: 'var(--sp-1)' }}>No prescriptions yet</h3>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginBottom: 'var(--sp-4)' }}>Upload your first prescription to get started.</p>
+            <Link href="/patient/upload" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-2)',
+              padding: 'var(--sp-3) var(--sp-5)',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--primary)',
+              color: '#fff',
+              fontWeight: 600,
+              fontSize: 'var(--text-sm)',
+              textDecoration: 'none',
+            }}>Upload Prescription</Link>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
             {prescriptions.map((rx) => (
               <Link key={rx.prescription_id} href={`/patient/prescriptions/${rx.prescription_id}`} style={{ textDecoration: 'none' }}>
-                <div className="card card-interactive" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--sp-4) var(--sp-5)' }}>
+                <div className="medical-card-glass" style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: 'var(--sp-4) var(--sp-5)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-surface)',
+                  transition: 'all 200ms', cursor: 'pointer',
+                }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; }}
+                >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)' }}>
                     <div style={{ width: '44px', height: '44px', borderRadius: 'var(--radius-md)', background: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <IconFileText size={20} />
                     </div>
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-1)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: '2px' }}>
                         <span style={{ fontWeight: 600, fontSize: 'var(--text-md)', color: 'var(--text-primary)' }}>Prescription #{rx.prescription_id.slice(0, 8)}</span>
                         <StatusBadge status={rx.verification_status} />
                       </div>
-                      <p className="text-caption">Extraction: {rx.extraction_status} · {timeAgo(rx.created_at)}</p>
+                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Extraction: {rx.extraction_status} · {timeAgo(rx.created_at)}</p>
                     </div>
                   </div>
                   <IconChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />

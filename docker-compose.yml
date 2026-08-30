@@ -66,6 +66,8 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     ports:
       - "8000:8000"
+    volumes:
+      - api_storage:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,8 +84,11 @@ services:
       GOOGLE_VISION_API_KEY: ${GOOGLE_VISION_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OCR_SPACE_API_KEY: K87485901788957
     ports:
       - "8001:8001"
+    volumes:
+      - paddleocr_cache:/root/.paddleocr
 
   web:
     build:
@@ -93,8 +98,13 @@ services:
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      NEXT_PUBLIC_RAZORPAY_KEY_ID: rzp_test_TVr19CBmYZWHSX
+      API_INTERNAL_URL: http://api:8000
     ports:
       - "3000:3000"
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
     depends_on:
       - api
 
@@ -102,4 +112,6 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  paddleocr_cache:
+  api_storage:
 

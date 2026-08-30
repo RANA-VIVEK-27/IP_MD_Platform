@@ -18,7 +18,7 @@ export default function UserAdminAccountsPage() {
   const [search, setSearch] = useState('');
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<AccountListItem | null>(null);
-  const [actionType, setActionType] = useState<'suspend' | 'reinstate'>('suspend');
+  const [actionType, setActionType] = useState<'suspend' | 'reinstate' | 'approve'>('suspend');
   const [reasonCode, setReasonCode] = useState('');
   const [acting, setActing] = useState(false);
 
@@ -40,7 +40,7 @@ export default function UserAdminAccountsPage() {
 
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
 
-  const handleOpenStatusModal = (user: AccountListItem, type: 'suspend' | 'reinstate') => {
+  const handleOpenStatusModal = (user: AccountListItem, type: 'suspend' | 'reinstate' | 'approve') => {
     setSelectedUser(user);
     setActionType(type);
     setReasonCode('');
@@ -53,8 +53,10 @@ export default function UserAdminAccountsPage() {
     try {
       if (actionType === 'suspend') {
         await ApiClient.suspendAccount(selectedUser.user_id, reasonCode);
-      } else {
+      } else if (actionType === 'reinstate') {
         await ApiClient.reinstateAccount(selectedUser.user_id, reasonCode);
+      } else {
+        await ApiClient.approveAccount(selectedUser.user_id, reasonCode);
       }
       setAccounts(prev =>
         prev.map(acc =>
@@ -66,8 +68,8 @@ export default function UserAdminAccountsPage() {
       setStatusModalOpen(false);
       addToast(
         actionType === 'suspend' ? 'warning' : 'success',
-        actionType === 'suspend' ? 'Account Suspended' : 'Account Reinstated',
-        `${selectedUser.full_name} has been ${actionType === 'suspend' ? 'suspended' : 'reinstated'}.`
+        actionType === 'suspend' ? 'Account Suspended' : actionType === 'approve' ? 'Account Approved' : 'Account Reinstated',
+        `${selectedUser.full_name} has been ${actionType === 'suspend' ? 'suspended' : actionType === 'approve' ? 'approved' : 'reinstated'}.`
       );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Action failed';
@@ -86,6 +88,7 @@ export default function UserAdminAccountsPage() {
 
   const activeCount = accounts.filter((a) => a.status === 'active').length;
   const suspendedCount = accounts.filter((a) => a.status === 'suspended').length;
+  const pendingCount = accounts.filter((a) => a.status === 'pending').length;
 
   return (
     <div className="app-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-6)' }}>
@@ -106,6 +109,12 @@ export default function UserAdminAccountsPage() {
           <div className="text-overline" style={{ marginBottom: 'var(--sp-1)' }}>Active</div>
           <div className="tabular-nums" style={{ fontSize: 'var(--text-2xl)', fontWeight: 700, color: 'var(--success)' }}>
             {activeCount}
+          </div>
+        </div>
+        <div className="card" style={{ textAlign: 'center', padding: 'var(--sp-4)' }}>
+          <div className="text-overline" style={{ marginBottom: 'var(--sp-1)' }}>Pending</div>
+          <div className="tabular-nums" style={{ fontSize: 'var(--text-2xl)', fontWeight: 700, color: 'var(--warning, #f59e0b)' }}>
+            {pendingCount}
           </div>
         </div>
         <div className="card" style={{ textAlign: 'center', padding: 'var(--sp-4)' }}>
@@ -181,6 +190,14 @@ export default function UserAdminAccountsPage() {
                       >
                         Suspend
                       </button>
+                    ) : acc.status === 'pending' ? (
+                      <button
+                        className="btn btn-primary btn-sm"
+                        style={{ background: 'var(--success)', borderColor: 'var(--success)' }}
+                        onClick={() => handleOpenStatusModal(acc, 'approve')}
+                      >
+                        Approve
+                      </button>
                     ) : (
                       <button
                         className="btn btn-primary btn-sm"
@@ -211,7 +228,7 @@ export default function UserAdminAccountsPage() {
       <Modal
         isOpen={statusModalOpen}
         onClose={() => setStatusModalOpen(false)}
-        title={actionType === 'suspend' ? 'Suspend User Account' : 'Reinstate User Account'}
+        title={actionType === 'suspend' ? 'Suspend User Account' : actionType === 'approve' ? 'Approve User Account' : 'Reinstate User Account'}
       >
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-3" style={{ padding: 'var(--sp-3)', background: 'var(--bg-page)', borderRadius: 'var(--radius-md)' }}>
@@ -225,6 +242,8 @@ export default function UserAdminAccountsPage() {
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
             {actionType === 'suspend'
               ? 'Suspending this account will immediately revoke access token issuance and invalidate live API calls on all subsequent requests.'
+              : actionType === 'approve'
+              ? 'Approving this account will set their status to active and allow them to log in to the platform.'
               : 'Reinstating this account will restore active login capabilities.'}
           </p>
 
@@ -245,11 +264,12 @@ export default function UserAdminAccountsPage() {
               Cancel
             </button>
             <button
-              className={`btn ${actionType === 'suspend' ? 'btn-danger' : 'btn-primary'}`}
+              className={`btn ${actionType === 'suspend' ? 'btn-danger' : actionType === 'approve' ? 'btn-primary' : 'btn-primary'}`}
               disabled={!reasonCode.trim() || acting}
               onClick={handleConfirmStatus}
+              style={actionType === 'approve' ? { background: 'var(--success)', borderColor: 'var(--success)' } : undefined}
             >
-              {acting ? 'Processing...' : actionType === 'suspend' ? 'Confirm Suspension' : 'Confirm Reinstatement'}
+              {acting ? 'Processing...' : actionType === 'suspend' ? 'Confirm Suspension' : actionType === 'approve' ? 'Confirm Approval' : 'Confirm Reinstatement'}
             </button>
           </div>
         </div>

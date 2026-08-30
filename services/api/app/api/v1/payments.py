@@ -27,7 +27,7 @@ router = APIRouter(prefix="/payments", tags=["Payments & Settlements"])
     response_model=PaymentOrderCreateResponse,
     status_code=status.HTTP_201_CREATED
 )
-def create_payment_order(
+async def create_payment_order(
     req: PaymentOrderCreateRequest,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
     db: Session = Depends(get_db),
@@ -36,7 +36,7 @@ def create_payment_order(
     """
     Creates a Razorpay order server-side for an order prior to client payment initiation (BRD FR-16 / TRD Item 18).
     """
-    intent = PaymentService.create_payment_order(
+    intent = await PaymentService.create_payment_order(
         db=db,
         patient_id=current_user.user_id,
         order_id=req.order_id,

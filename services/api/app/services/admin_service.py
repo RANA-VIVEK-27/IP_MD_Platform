@@ -16,7 +16,7 @@ from fastapi import HTTPException, status
 
 from app.models.identity import (
     User, DoctorLicense, AdminPermission, Permission,
-    AccountStatusHistory, PharmacyProfile,
+    AccountStatusHistory, PharmacyProfile, VerificationRequest,
 )
 from app.models.catalog import PartnerPharmacy
 from app.models.orders import Order, OrderDispute
@@ -49,12 +49,29 @@ class UserAdminService:
             .order_by(User.created_at.asc())
             .all()
         )
+
+        # Fetch verification request data for richer detail
+        user_ids = [user.user_id for user, _ in results]
+        vr_map = {}
+        if user_ids:
+            vrs = db.query(VerificationRequest).filter(
+                VerificationRequest.user_id.in_(user_ids),
+                VerificationRequest.request_type == "doctor",
+            ).all()
+            vr_map = {vr.user_id: vr for vr in vrs}
+
         return [
             {
                 "user_id": user.user_id,
                 "full_name": user.full_name,
+                "email": user.email,
+                "phone": user.phone,
                 "license_number": license.license_number,
                 "submitted_at": user.created_at,
+                "medical_registration": (vr_map.get(user.user_id, None) and vr_map[user.user_id].application_data or {}).get("medical_registration"),
+                "qualification": (vr_map.get(user.user_id, None) and vr_map[user.user_id].application_data or {}).get("qualification"),
+                "practice_info": (vr_map.get(user.user_id, None) and vr_map[user.user_id].application_data or {}).get("practice_info"),
+                "address": (vr_map.get(user.user_id, None) and vr_map[user.user_id].application_data or {}).get("address"),
             }
             for user, license in results
         ]
@@ -274,6 +291,61 @@ class UserAdminService:
         }
 
     @staticmethod
+    def approve_account(
+        db: Session,
+        *,
+        admin_user: User,
+        user_id: uuid.UUID,
+        reason_code: str,
+    ) -> Dict[str, Any]:
+        """
+        Approves a pending account, setting it to active.
+        Only pending accounts can be approved.
+        """
+        target_user = db.query(User).filter(User.user_id == user_id).first()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
+
+        if target_user.role in ("admin", "super_admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="FORBIDDEN: Cannot approve Admin or Super Admin accounts",
+            )
+
+        if target_user.status != "pending":
+            raise HTTPException(status_code=409, detail="ACCOUNT_NOT_PENDING")
+
+        target_user.status = "active"
+        target_user.updated_at = datetime.now(timezone.utc)
+
+        history = AccountStatusHistory(
+            status_history_id=uuid.uuid4(),
+            user_id=user_id,
+            status="active",
+            reason_code=reason_code,
+            changed_by=admin_user.user_id,
+            changed_at=datetime.now(timezone.utc),
+        )
+        db.add(history)
+
+        audit_entry = AuditService.log_action(
+            db,
+            actor_id=admin_user.user_id,
+            actor_role=admin_user.role,
+            action_type="APPROVE_ACCOUNT",
+            target_entity_type="user",
+            target_entity_id=user_id,
+            justification=f"Reason: {reason_code}",
+        )
+
+        db.commit()
+        return {
+            "user_id": user_id,
+            "status": "active",
+            "audit_log_id": audit_entry.audit_log_id,
+        }
+
+    @staticmethod
     def update_account(
         db: Session,
         *,
@@ -427,18 +499,36 @@ class AdminService:
         *,
         admin_user: User,
         name: str,
+        email: str,
+        password: str,
         address: Dict[str, Any],
-        fulfillment_radius_km: float,
+        fulfillment_radius_km: float = 10.0,
+        phone: Optional[str] = None,
         catalog_feed_url: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Onboards a new partner pharmacy."""
+        """Onboards a new partner pharmacy with login credentials."""
+        # Create User account so the pharmacy can log in
+        user = User(
+            role='partner_pharmacy',
+            full_name=name,
+            email=email,
+            phone=phone,
+            password_hash=hash_password(password),
+            status='active',
+            professional_status=None,
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(user)
+        db.flush()
+
         partner = PartnerPharmacy(
             partner_id=uuid.uuid4(),
+            user_id=user.user_id,
             name=name,
             address=address,
             fulfillment_radius_km=fulfillment_radius_km,
             catalog_feed_url=catalog_feed_url,
-            status="pending_activation",
+            status="active",
             created_at=datetime.now(timezone.utc),
         )
         db.add(partner)
@@ -455,7 +545,8 @@ class AdminService:
 
         db.commit()
         return {
-            "partner_id": partner.partner_id,
+            "user_id": str(user.user_id),
+            "partner_id": str(partner.partner_id),
             "status": partner.status,
             "audit_log_id": audit_entry.audit_log_id,
         }

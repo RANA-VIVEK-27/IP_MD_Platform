@@ -61,7 +61,7 @@ async def extract_prescription(req: PrescriptionExtractionRequest):
             image_bytes=image_bytes,
             image_base64=req.image_base64,
             filename=req.filename or "prescription.jpg",
-            simulate_low_confidence=req.simulate_low_confidence,
+            simulate_low_confidence=req.simulate_low_confidence or False,
         )
         return res
     except Exception as e:
@@ -92,7 +92,6 @@ async def parse_report(req: ReportParseRequest):
             doc_bytes=doc_bytes,
             doc_base64=req.document_base64,
             filename=req.filename or "lab_report.pdf",
-            simulate_abnormal=req.simulate_abnormal,
         )
         return res
     except Exception as e:

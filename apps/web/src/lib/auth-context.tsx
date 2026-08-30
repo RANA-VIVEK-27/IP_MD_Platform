@@ -19,11 +19,13 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const ROLE_REDIRECTS: Record<string, string> = {
   patient: '/patient',
   doctor: '/doctor',
+  pharmacist: '/pharmacy/pharmacist/dashboard',
+  pharmacy_admin: '/pharmacy/dashboard',
+  pharmacy_staff_owned: '/pharmacy/dashboard',
+  partner_pharmacy: '/pharmacy/dashboard',
   admin: '/admin',
   user_admin: '/user-admin',
   super_admin: '/super-admin',
-  pharmacy_staff_owned: '/admin',
-  partner_pharmacy: '/admin',
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

@@ -28,6 +28,22 @@ class ExtractedFieldResponse(BaseModel):
     edited_by: Optional[UUID] = None
     edited_reason: Optional[str] = None
 
+class MedicineItemResponse(BaseModel):
+    """Structured medicine extraction result."""
+    sequence: int
+    raw_name: str
+    name: str
+    strength: Optional[str] = None
+    dosage_instruction: Optional[str] = None
+    duration: Optional[str] = None
+    quantity: Optional[int] = None
+    ocr_confidence: float = 0.0
+    parser_confidence: float = 0.0
+    validation_confidence: float = 0.0
+    overall_confidence: float = 0.0
+    needs_review: bool = True
+
+
 class PrescriptionDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -39,6 +55,26 @@ class PrescriptionDetailResponse(BaseModel):
     verification_status: str
     is_ai_generated: bool = True
     extracted_fields: List[ExtractedFieldResponse] = []
+    medicines: List[MedicineItemResponse] = []
+    raw_ocr_text: Optional[str] = None
+    overall_confidence: Optional[float] = None
+    needs_review: Optional[bool] = None
+    doctor_name: Optional[str] = None
+    doctor_phone: Optional[str] = None
+    doctor_reg_no: Optional[str] = None
+    doctor_qualification: Optional[str] = None
+    doctor_specialization: Optional[str] = None
+    clinic_name: Optional[str] = None
+    clinic_address: Optional[str] = None
+    patient_name: Optional[str] = None
+    patient_phone: Optional[str] = None
+    patient_age: Optional[str] = None
+    patient_gender: Optional[str] = None
+    patient_mrd: Optional[str] = None
+    prescription_date: Optional[str] = None
+    patient_note: Optional[str] = None
+    diagnosis: Optional[str] = None
+    document_url: Optional[str] = None
     created_at: datetime
 
 class PrescriptionSummaryResponse(BaseModel):

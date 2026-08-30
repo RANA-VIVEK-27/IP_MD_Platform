@@ -43,8 +43,11 @@ class DashboardSummaryResponse(BaseModel):
 
 class PartnerPharmacyCreateRequest(BaseModel):
     name: str
+    email: str
+    password: str = Field(..., min_length=6)
     address: Dict[str, Any]
-    fulfillment_radius_km: float
+    fulfillment_radius_km: float = 10.0
+    phone: Optional[str] = None
     catalog_feed_url: Optional[str] = None
 
 
@@ -85,8 +88,14 @@ class OverdueVerificationResponse(BaseModel):
 class DoctorKYCItem(BaseModel):
     user_id: UUID
     full_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
     license_number: str
     submitted_at: datetime
+    medical_registration: Optional[dict] = None
+    qualification: Optional[dict] = None
+    practice_info: Optional[dict] = None
+    address: Optional[dict] = None
 
 
 class DoctorKYCListResponse(BaseModel):
@@ -111,6 +120,10 @@ class AccountSuspendRequest(BaseModel):
 
 
 class AccountReinstateRequest(BaseModel):
+    reason_code: str = Field(..., description="Mandatory reason code")
+
+
+class AccountApproveRequest(BaseModel):
     reason_code: str = Field(..., description="Mandatory reason code")
 
 

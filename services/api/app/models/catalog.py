@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Date, Numeric, TIMESTAMP, Enum, ForeignKey, UniqueConstraint, CheckConstraint, text as sql_text
+from sqlalchemy import Column, String, Integer, Date, Numeric, Text, TIMESTAMP, Enum, ForeignKey, UniqueConstraint, CheckConstraint, text as sql_text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.db.base import Base
 
@@ -13,6 +13,15 @@ class MedicineCatalogItem(Base):
         Enum('otc', 'h', 'h1', 'x', name='medicine_schedule'),
         nullable=False
     )
+    manufacturer = Column(String(255), nullable=True)
+    dosage_form = Column(String(100), nullable=True)  # tablet, capsule, syrup, injection, cream, drops
+    strength = Column(String(100), nullable=True)  # e.g. 500mg, 10ml
+    pack_size = Column(String(100), nullable=True)  # e.g. 10 tablets, 1 bottle
+    description = Column(Text, nullable=True)
+    side_effects = Column(Text, nullable=True)
+    contraindications = Column(Text, nullable=True)
+    storage_conditions = Column(String(255), nullable=True)
+    drug_interactions = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False)
 
 
@@ -36,6 +45,7 @@ class PartnerPharmacy(Base):
     __tablename__ = 'partner_pharmacies'
 
     partner_id = Column(UUID(as_uuid=True), primary_key=True, server_default=sql_text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.user_id'), nullable=True)
     name = Column(String(255), nullable=False)
     address = Column(JSONB, nullable=False)
     gstin = Column(String(20), nullable=True)

@@ -14,6 +14,7 @@ from app.schemas.admin import (
     DoctorKYCVerifyResponse,
     AccountSuspendRequest,
     AccountReinstateRequest,
+    AccountApproveRequest,
     AccountUpdateRequest,
     AccountActionResponse,
     AccountListItem,
@@ -122,6 +123,25 @@ def reinstate_account(
     Reinstates a previously suspended account (BRD FR-24 / API §3.9).
     """
     res = UserAdminService.reinstate_account(
+        db=db,
+        admin_user=current_user,
+        user_id=user_id,
+        reason_code=req.reason_code,
+    )
+    return AccountActionResponse(**res)
+
+
+@router.post("/accounts/{user_id}/approve", response_model=AccountActionResponse)
+def approve_account(
+    user_id: uuid.UUID,
+    req: AccountApproveRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("user_admin", "super_admin")),
+):
+    """
+    Approves a pending account, setting it to active (BRD FR-24 / API §3.9).
+    """
+    res = UserAdminService.approve_account(
         db=db,
         admin_user=current_user,
         user_id=user_id,

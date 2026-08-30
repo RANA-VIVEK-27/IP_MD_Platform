@@ -98,7 +98,12 @@ class CatalogService:
                     schedule=med.schedule,
                     price=min_price,
                     in_stock=in_stock,
-                    total_stock=total_qty
+                    total_stock=total_qty,
+                    manufacturer=med.manufacturer,
+                    dosage_form=med.dosage_form,
+                    strength=med.strength,
+                    pack_size=med.pack_size,
+                    description=med.description,
                 )
             )
 
@@ -392,7 +397,7 @@ class CatalogService:
 
         extracted_fields = db.query(ExtractedField).filter(
             ExtractedField.prescription_id == prescription_id,
-            ExtractedField.field_name.in_(["medicine_name", "drug_name"])
+            ExtractedField.field_name.like("medicine%name")
         ).all()
 
         matches: List[MatchItem] = []

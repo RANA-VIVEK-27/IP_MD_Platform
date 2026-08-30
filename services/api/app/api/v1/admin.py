@@ -81,8 +81,11 @@ def create_partner_pharmacy(
         db=db,
         admin_user=current_user,
         name=req.name,
+        email=req.email,
+        password=req.password,
         address=req.address,
         fulfillment_radius_km=req.fulfillment_radius_km,
+        phone=req.phone,
         catalog_feed_url=req.catalog_feed_url
     )
     return PartnerPharmacyResponse(

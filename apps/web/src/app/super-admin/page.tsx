@@ -29,6 +29,17 @@ export default function SuperAdminAccountsPage() {
   const [newRole, setNewRole] = useState<'admin' | 'user_admin'>('admin');
   const [submitting, setSubmitting] = useState(false);
 
+  // Pharmacy account creation state
+  const [pharmModalOpen, setPharmModalOpen] = useState(false);
+  const [pharmType, setPharmType] = useState<'pharmacy_admin' | 'partner_pharmacy'>('pharmacy_admin');
+  const [pharmName, setPharmName] = useState('');
+  const [pharmEmail, setPharmEmail] = useState('');
+  const [pharmPassword, setPharmPassword] = useState('');
+  const [pharmPhone, setPharmPhone] = useState('');
+  const [pharmOrgName, setPharmOrgName] = useState('');
+  const [pharmAddress, setPharmAddress] = useState('');
+  const [pharmGstin, setPharmGstin] = useState('');
+
   useEffect(() => { loadAdmins(); }, []);
 
   async function loadAdmins() {
@@ -58,6 +69,48 @@ export default function SuperAdminAccountsPage() {
     } finally { setSubmitting(false); }
   };
 
+  const handleCreatePharmacy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pharmName.trim() || !pharmEmail.trim() || !pharmPassword.trim()) return;
+    setSubmitting(true);
+    try {
+      if (pharmType === 'pharmacy_admin') {
+        await ApiClient.register({
+          email: pharmEmail.trim(),
+          password: pharmPassword.trim(),
+          full_name: pharmName.trim(),
+          role: 'pharmacy_admin',
+          phone: pharmPhone || undefined,
+          auto_activate: true,
+          pharmacy_details: {
+            pharmacy_name: pharmOrgName || pharmName.trim(),
+            address: { full_address: pharmAddress, city: '', state: '', pincode: '' },
+            gstin: pharmGstin || undefined,
+          },
+        });
+      } else {
+        await ApiClient.createPartnerPharmacy({
+          name: pharmName.trim(),
+          email: pharmEmail.trim(),
+          password: pharmPassword.trim(),
+          address: { full_address: pharmAddress, city: '', state: '', pincode: '' },
+          phone: pharmPhone || undefined,
+        });
+      }
+      setPharmModalOpen(false);
+      setPharmName('');
+      setPharmEmail('');
+      setPharmPassword('');
+      setPharmPhone('');
+      setPharmOrgName('');
+      setPharmAddress('');
+      setPharmGstin('');
+      addToast('success', 'Pharmacy Account Created', `New ${pharmType === 'pharmacy_admin' ? 'Pharmacy Admin' : 'Partner Pharmacy'} account created successfully.`);
+    } catch (e: unknown) {
+      addToast('error', 'Creation Failed', e instanceof Error ? e.message : 'Failed to create pharmacy account.');
+    } finally { setSubmitting(false); }
+  };
+
   const handleRevoke = async () => {
     if (!selectedAdmin) return;
     setSubmitting(true);
@@ -75,7 +128,10 @@ export default function SuperAdminAccountsPage() {
   return (
     <div className="app-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-6)' }}>
       <PageHeader title="Admin & User Admin Governance" subtitle="Create, assign granular permissions, and revoke administrative accounts." action={
-        <button className="btn btn-primary" onClick={() => setCreateModalOpen(true)}>+ Create Admin</button>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+          <button className="btn btn-primary" onClick={() => setPharmModalOpen(true)}>+ Create Pharmacy</button>
+          <button className="btn btn-secondary" onClick={() => setCreateModalOpen(true)}>+ Create Admin</button>
+        </div>
       } />
 
       {loading ? (
@@ -114,6 +170,7 @@ export default function SuperAdminAccountsPage() {
         </div>
       )}
 
+      {/* Admin Account Modal */}
       <Modal isOpen={createModalOpen} onClose={() => setCreateModalOpen(false)} title="Create New Administrative Account">
         <form onSubmit={handleCreateAdmin} className="flex flex-col gap-4">
           <div className="form-group">
@@ -134,6 +191,51 @@ export default function SuperAdminAccountsPage() {
           <div className="modal-footer">
             <button type="button" className="btn btn-ghost" onClick={() => setCreateModalOpen(false)}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Creating...' : 'Create Admin Account'}</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Pharmacy Account Modal */}
+      <Modal isOpen={pharmModalOpen} onClose={() => setPharmModalOpen(false)} title="Create Pharmacy Account">
+        <form onSubmit={handleCreatePharmacy} className="flex flex-col gap-4">
+          <div className="form-group">
+            <label className="form-label">Account Type</label>
+            <select className="select" value={pharmType} onChange={e => setPharmType(e.target.value as 'pharmacy_admin' | 'partner_pharmacy')}>
+              <option value="pharmacy_admin">Pharmacy Admin (Organization Owner)</option>
+              <option value="partner_pharmacy">Partner Pharmacy (External Network)</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Full Name / Contact Person</label>
+            <input className="input" required value={pharmName} onChange={e => setPharmName(e.target.value)} placeholder="e.g. Dr. Priya Mehta" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Email</label>
+            <input className="input" type="email" required value={pharmEmail} onChange={e => setPharmEmail(e.target.value)} placeholder="e.g. admin@healthplus.in" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Password</label>
+            <input className="input" type="password" required minLength={6} value={pharmPassword} onChange={e => setPharmPassword(e.target.value)} placeholder="Min 6 characters" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Phone (optional)</label>
+            <input className="input" value={pharmPhone} onChange={e => setPharmPhone(e.target.value)} placeholder="+91 XXXXX XXXXX" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">{pharmType === 'pharmacy_admin' ? 'Organization Name' : 'Pharmacy Name'}</label>
+            <input className="input" value={pharmOrgName} onChange={e => setPharmOrgName(e.target.value)} placeholder="e.g. HealthPlus Pharmacy" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Address</label>
+            <input className="input" value={pharmAddress} onChange={e => setPharmAddress(e.target.value)} placeholder="Full address" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">GSTIN (optional)</label>
+            <input className="input" value={pharmGstin} onChange={e => setPharmGstin(e.target.value)} placeholder="22AAAAA0000A1Z5" />
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-ghost" onClick={() => setPharmModalOpen(false)}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Creating...' : 'Create Pharmacy Account'}</button>
           </div>
         </form>
       </Modal>

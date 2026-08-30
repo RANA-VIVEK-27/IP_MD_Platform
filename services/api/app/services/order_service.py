@@ -132,6 +132,33 @@ class OrderService:
             return new_item, checkout_blocked
 
     @staticmethod
+    def remove_item_from_cart(
+        db: Session,
+        patient_id: uuid.UUID,
+        cart_id: uuid.UUID,
+        cart_item_id: uuid.UUID,
+    ) -> dict:
+        """Removes an item from the cart."""
+        cart = db.query(Cart).filter(Cart.cart_id == cart_id).first()
+        if not cart:
+            raise HTTPException(status_code=404, detail="CART_NOT_FOUND")
+        if cart.patient_id != patient_id:
+            raise HTTPException(status_code=403, detail="FORBIDDEN")
+        if cart.status != 'active':
+            raise HTTPException(status_code=400, detail="CART_NOT_ACTIVE")
+
+        item = db.query(CartItem).filter(
+            CartItem.cart_item_id == cart_item_id,
+            CartItem.cart_id == cart_id,
+        ).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="CART_ITEM_NOT_FOUND")
+
+        db.delete(item)
+        db.commit()
+        return {"message": "Item removed", "cart_item_id": str(cart_item_id)}
+
+    @staticmethod
     def get_cart(db: Session, patient_id: uuid.UUID, cart_id: uuid.UUID, user_role: str = "patient") -> CartDetailResponse:
         """
         Retrieves cart items, recalculates compliance blocks and subtotal (BRD FR-14).

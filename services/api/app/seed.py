@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session
 from app.db.session import engine
-from app.models.identity import User, DoctorLicense, SavedAddress
+from app.models.identity import User, DoctorLicense, VerificationRequest, SavedAddress
 from app.services.auth_service import hash_password
 import uuid
 from datetime import datetime, timezone
@@ -57,7 +57,7 @@ DEMO_USERS = [
         "email": "demo.pharmacy@ipmd.in",
         "password": "DemoPass123!",
         "full_name": "Vikram Joshi",
-        "role": "pharmacy_staff_owned",
+        "role": "pharmacy_admin",
         "phone": "+919000000006",
     },
     {
@@ -66,6 +66,13 @@ DEMO_USERS = [
         "full_name": "Apollo Pharmacy Manager",
         "role": "partner_pharmacy",
         "phone": "+919000000007",
+    },
+    {
+        "email": "demo.pharmacist@ipmd.in",
+        "password": "DemoPass123!",
+        "full_name": "Dr. Priya Agarwal, D.Pharm",
+        "role": "pharmacist",
+        "phone": "+919000000008",
     },
 ]
 
@@ -111,6 +118,15 @@ def seed():
                 verification_status="approved",
             )
             db.add(license_obj)
+
+        if u["role"] == "pharmacist":
+            vr = VerificationRequest(
+                user_id=user.user_id,
+                request_type="pharmacist",
+                status="verified",
+                application_data={"name": u["full_name"], "email": u["email"]},
+            )
+            db.add(vr)
 
         print(f"  OK    {u['email']} role={u['role']} status=active")
         created += 1

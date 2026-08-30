@@ -21,13 +21,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <script src="https://checkout.razorpay.com/v1/checkout.js" />
+      </head>
       <body>
         <AuthProvider>
           <ToastProvider>
             <a href="#main-content" className="skip-link">Skip to content</a>
             <div className="app-shell">
               <AppNav />
-              <main id="main-content" role="main">
+              <main id="main-content" role="main" className="app-main">
                 {children}
               </main>
             </div>

@@ -1,7 +1,8 @@
 from app.db.base import Base
 from app.models.identity import (
     User, DoctorLicense, PharmacyProfile, Permission, AdminPermission,
-    RefreshToken, AccountStatusHistory, SavedAddress
+    RefreshToken, AccountStatusHistory, SavedAddress,
+    ProfessionalCredential, Organization, OrganizationMembership, VerificationRequest
 )
 from app.models.prescription_report import (
     Document, Prescription, ExtractedField, Report, ReportValue,
@@ -32,6 +33,7 @@ __all__ = [
     'Base',
     'User', 'DoctorLicense', 'PharmacyProfile', 'Permission', 'AdminPermission',
     'RefreshToken', 'AccountStatusHistory', 'SavedAddress',
+    'ProfessionalCredential', 'Organization', 'OrganizationMembership', 'VerificationRequest',
     'Document', 'Prescription', 'ExtractedField', 'Report', 'ReportValue',
     'ReportAccessGrant', 'VerificationAction',
     'MedicineCatalogItem', 'OwnedInventoryStock', 'PartnerPharmacy',

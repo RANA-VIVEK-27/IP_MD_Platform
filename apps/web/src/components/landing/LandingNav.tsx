@@ -81,16 +81,19 @@ export function LandingNav() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
           {isLoggedIn ? (
-            <Link href={user!.role === 'patient' ? '/patient' : `/${user!.role === 'pharmacy_staff_owned' || user!.role === 'partner_pharmacy' ? 'admin' : user!.role}`} style={{ textDecoration: 'none' }}>
+            <Link href={user!.role === 'patient' ? '/patient' : (user!.role === 'pharmacy_staff_owned' || user!.role === 'partner_pharmacy') ? '/pharmacy/dashboard' : `/${user!.role}`} style={{ textDecoration: 'none' }}>
               <button className="btn btn-primary btn-sm">Dashboard</button>
             </Link>
           ) : (
             <>
-              <Link href="/login" style={{ textDecoration: 'none' }}>
+              <Link href="/patient/login" style={{ textDecoration: 'none' }}>
                 <button className="btn btn-ghost btn-sm" style={{ fontWeight: 500 }}>Log In</button>
               </Link>
-              <Link href="/register" style={{ textDecoration: 'none' }}>
+              <Link href="/patient/register" style={{ textDecoration: 'none' }}>
                 <button className="btn btn-primary btn-sm">Get Started</button>
+              </Link>
+              <Link href="/professional" style={{ textDecoration: 'none' }}>
+                <button className="btn btn-ghost btn-sm" style={{ fontWeight: 500 }}>Professional</button>
               </Link>
             </>
           )}
@@ -111,8 +114,9 @@ export function LandingNav() {
             </a>
           ))}
           <div style={{ display: 'flex', gap: 'var(--sp-3)', marginTop: 'var(--sp-4)' }}>
-            <Link href="/login" style={{ flex: 1, textDecoration: 'none' }}><button className="btn btn-secondary" style={{ width: '100%' }}>Log In</button></Link>
-            <Link href="/register" style={{ flex: 1, textDecoration: 'none' }}><button className="btn btn-primary" style={{ width: '100%' }}>Get Started</button></Link>
+            <Link href="/patient/login" style={{ flex: 1, textDecoration: 'none' }}><button className="btn btn-secondary" style={{ width: '100%' }}>Log In</button></Link>
+            <Link href="/patient/register" style={{ flex: 1, textDecoration: 'none' }}><button className="btn btn-primary" style={{ width: '100%' }}>Get Started</button></Link>
+            <Link href="/professional" style={{ flex: 1, textDecoration: 'none' }}><button className="btn btn-ghost" style={{ width: '100%' }}>Professional</button></Link>
           </div>
         </div>
       )}

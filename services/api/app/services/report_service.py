@@ -85,12 +85,15 @@ class ReportService:
             )
 
         if user.role == "doctor":
-            # Check if doctor has access grant or is on-call
             access = db.query(ReportAccessGrant).filter(
                 ReportAccessGrant.report_id == report_id,
                 ReportAccessGrant.doctor_id == user.user_id
             ).first()
-            # If explicit grant is required, allow or fallback for clinical reviewer
+            if not access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="FORBIDDEN: You do not have access to this report. Ask the patient to grant access."
+                )
 
         values = db.query(ReportValue).filter(
             ReportValue.report_id == report.report_id
@@ -160,3 +163,40 @@ class ReportService:
             results = results[:limit]
 
         return results, next_cursor
+
+    @staticmethod
+    def grant_access(
+        db: Session,
+        patient: User,
+        report_id: uuid.UUID,
+        doctor_id: uuid.UUID,
+    ) -> dict:
+        """
+        Patient grants a doctor access to a report.
+        """
+        report = db.query(Report).filter(Report.report_id == report_id).first()
+        if not report:
+            raise HTTPException(status_code=404, detail="REPORT_NOT_FOUND")
+        if report.patient_id != patient.user_id:
+            raise HTTPException(status_code=403, detail="FORBIDDEN: You do not own this report")
+
+        doctor = db.query(User).filter(User.user_id == doctor_id, User.role == "doctor").first()
+        if not doctor:
+            raise HTTPException(status_code=404, detail="DOCTOR_NOT_FOUND")
+
+        existing = db.query(ReportAccessGrant).filter(
+            ReportAccessGrant.report_id == report_id,
+            ReportAccessGrant.doctor_id == doctor_id,
+        ).first()
+        if existing:
+            return {"message": "Access already granted", "grant_id": str(existing.grant_id)}
+
+        grant = ReportAccessGrant(
+            report_id=report_id,
+            doctor_id=doctor_id,
+            granted_at=datetime.now(timezone.utc),
+        )
+        db.add(grant)
+        db.commit()
+
+        return {"message": "Access granted", "grant_id": str(grant.grant_id)}

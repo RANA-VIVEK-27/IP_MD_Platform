@@ -160,7 +160,7 @@ export default function UploadPage() {
                 setProgress(100);
                 setCurrentStep(2);
                 setStatusMsg('Upload complete! Redirecting...');
-                setTimeout(() => router.push('/patient'), 1000);
+                setTimeout(() => router.push(`/patient/reports/${entityId}`), 1000);
                 return;
               }
             }
@@ -174,7 +174,7 @@ export default function UploadPage() {
             setProgress(100);
             setCurrentStep(2);
             setStatusMsg('Processing taking longer than expected. Redirecting...');
-            setTimeout(() => router.push(mode === 'prescription' ? `/patient/prescriptions/${entityId}` : '/patient'), 1500);
+            setTimeout(() => router.push(mode === 'prescription' ? `/patient/prescriptions/${entityId}` : mode === 'report' ? `/patient/reports/${entityId}` : '/patient/documents'), 1500);
           }
         };
 

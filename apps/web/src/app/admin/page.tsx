@@ -123,8 +123,8 @@ export default function AdminDashboardPage() {
               </div>
             </div>
             <div className="flex flex-col gap-2" style={{ marginTop: 'var(--sp-3)' }}>
-              <Link href="/patient/orders" className="btn btn-secondary" style={{ justifyContent: 'flex-start' }}>View Orders</Link>
-              <Link href="/patient/catalog" className="btn btn-secondary" style={{ justifyContent: 'flex-start' }}>Browse Catalog</Link>
+              <Link href="/pharmacy/orders" className="btn btn-secondary" style={{ justifyContent: 'flex-start' }}>View Orders</Link>
+              <Link href="/pharmacy/medicines" className="btn btn-secondary" style={{ justifyContent: 'flex-start' }}>Browse Catalog</Link>
             </div>
           </div>
         </div>

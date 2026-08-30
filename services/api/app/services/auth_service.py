@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text as sql_text
 
 from app.models.identity import (
-    User, DoctorLicense, PharmacyProfile, RefreshToken, AccountStatusHistory
+    User, DoctorLicense, PharmacyProfile, RefreshToken, AccountStatusHistory,
+    ProfessionalCredential, Organization, OrganizationMembership, VerificationRequest
 )
 from app.schemas.auth import UserRegisterRequest, PharmacyDetails
 from app.core.security import (
@@ -16,7 +17,8 @@ from app.core.security import (
 from app.core.config import settings
 
 VALID_ROLES = {
-    'patient', 'doctor', 'pharmacy_staff_owned', 'partner_pharmacy',
+    'patient', 'doctor', 'pharmacist', 'pharmacy_admin',
+    'pharmacy_staff_owned', 'partner_pharmacy',
     'admin', 'user_admin', 'super_admin'
 }
 
@@ -64,14 +66,26 @@ class AuthService:
 
         password_hash = hash_password(req.password) if req.password else None
         
-        # Initial status starts as 'pending' (per DB schema default)
+        # Professional roles start as 'pending' with professional_status
+        # Unless auto_activate is set (admin-created accounts bypass verification)
+        professional_roles = {'doctor', 'pharmacist', 'pharmacy_admin'}
+        if req.auto_activate:
+            initial_status = 'active'
+            prof_status = 'verified'
+        else:
+            initial_status = 'pending'
+            prof_status = 'submitted' if req.role in professional_roles else None
+
         user = User(
             role=req.role,
             full_name=req.full_name,
             email=req.email,
             phone=req.phone,
             password_hash=password_hash,
-            status='pending',
+            date_of_birth=req.date_of_birth,
+            address=req.address,
+            status=initial_status,
+            professional_status=prof_status,
             updated_at=datetime.now(timezone.utc)
         )
         db.add(user)
@@ -81,12 +95,105 @@ class AuthService:
         if req.role == 'doctor':
             doc_license = DoctorLicense(
                 user_id=user.user_id,
-                license_number=req.license_number,
+                license_number=req.license_number or '',
                 verification_status='pending'
             )
             db.add(doc_license)
 
-        if req.role in ('partner_pharmacy', 'pharmacy_staff_owned') and req.pharmacy_details:
+            # Create verification request (skip if admin-created with auto_activate)
+            if not req.auto_activate:
+                verification_req = VerificationRequest(
+                    user_id=user.user_id,
+                    request_type='doctor',
+                    status='submitted',
+                    application_data={
+                        'full_name': req.full_name,
+                        'email': req.email,
+                        'phone': req.phone,
+                        'date_of_birth': req.date_of_birth,
+                        'address': req.address if isinstance(req.address, dict) else (req.address.model_dump() if req.address else None),
+                        'license_number': req.license_number,
+                        'medical_registration': req.medical_registration.model_dump() if req.medical_registration else None,
+                        'qualification': req.qualification.model_dump() if req.qualification else None,
+                        'practice_info': req.practice_info.model_dump() if req.practice_info else None,
+                    },
+                    submitted_at=datetime.now(timezone.utc)
+                )
+                db.add(verification_req)
+
+        elif req.role == 'pharmacist':
+            if not req.auto_activate:
+                verification_req = VerificationRequest(
+                    user_id=user.user_id,
+                    request_type='pharmacist',
+                    status='submitted',
+                    application_data={
+                        'full_name': req.full_name,
+                        'email': req.email,
+                        'phone': req.phone,
+                        'date_of_birth': req.date_of_birth,
+                        'address': req.address if isinstance(req.address, dict) else (req.address.model_dump() if req.address else None),
+                        'qualification': req.qualification.model_dump() if req.qualification else None,
+                        'pharmacy_registration': req.pharmacy_registration.model_dump() if req.pharmacy_registration else None,
+                    },
+                    submitted_at=datetime.now(timezone.utc)
+                )
+                db.add(verification_req)
+
+        elif req.role == 'pharmacy_admin':
+            # Create organization
+            if req.pharmacy_details:
+                org = Organization(
+                    name=req.pharmacy_details.pharmacy_name,
+                    trade_name=req.pharmacy_details.trade_name,
+                    organization_type='pharmacy',
+                    business_type=req.pharmacy_details.business_type,
+                    address=req.pharmacy_details.address,
+                    contact_email=req.email,
+                    contact_phone=req.phone,
+                    gstin=req.pharmacy_details.gstin,
+                    status='active' if req.auto_activate else 'pending'
+                )
+                db.add(org)
+                db.flush()
+
+                # Create pharmacy profile linked to organization
+                pharmacy_prof = PharmacyProfile(
+                    user_id=user.user_id,
+                    organization_id=org.organization_id,
+                    pharmacy_name=req.pharmacy_details.pharmacy_name,
+                    address=req.pharmacy_details.address,
+                    gstin=req.pharmacy_details.gstin,
+                    pharmacy_type=req.pharmacy_details.business_type,
+                )
+                db.add(pharmacy_prof)
+
+                # Create owner membership
+                membership = OrganizationMembership(
+                    user_id=user.user_id,
+                    organization_id=org.organization_id,
+                    role='owner',
+                    status='active',
+                    accepted_at=datetime.now(timezone.utc)
+                )
+                db.add(membership)
+
+            if not req.auto_activate:
+                verification_req = VerificationRequest(
+                    user_id=user.user_id,
+                    request_type='pharmacy',
+                    status='submitted',
+                    application_data={
+                        'full_name': req.full_name,
+                        'email': req.email,
+                        'phone': req.phone,
+                        'pharmacy_details': req.pharmacy_details.model_dump() if req.pharmacy_details else None,
+                    },
+                    submitted_at=datetime.now(timezone.utc)
+                )
+                db.add(verification_req)
+
+        elif req.role in ('partner_pharmacy', 'pharmacy_staff_owned') and req.pharmacy_details:
             pharmacy_prof = PharmacyProfile(
                 user_id=user.user_id,
                 pharmacy_name=req.pharmacy_details.pharmacy_name,
@@ -98,7 +205,7 @@ class AuthService:
         # Audit account status creation
         status_hist = AccountStatusHistory(
             user_id=user.user_id,
-            status='pending',
+            status=initial_status,
             reason_code='registration',
             changed_at=datetime.now(timezone.utc)
         )

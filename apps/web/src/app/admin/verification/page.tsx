@@ -97,8 +97,8 @@ export default function AdminOverdueVerificationPage() {
                   </td>
                   <td>
                     <div className="flex items-center gap-2">
-                      {item.assigned_doctor && <Avatar name={item.assigned_doctor} size="sm" />}
-                      <span style={{ fontSize: 'var(--text-base)' }}>{item.assigned_doctor || 'Unassigned (Pool)'}</span>
+                      {item.assigned_doctor_id && <Avatar name={item.assigned_doctor_id} size="sm" />}
+                      <span style={{ fontSize: 'var(--text-base)' }}>{item.assigned_doctor_id || 'Unassigned (Pool)'}</span>
                     </div>
                   </td>
                   <td style={{ textAlign: 'right' }}>

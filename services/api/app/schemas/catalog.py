@@ -52,6 +52,11 @@ class MedicineSearchItemResponse(BaseModel):
     price: Optional[float] = None
     in_stock: bool = False
     total_stock: int = 0
+    manufacturer: Optional[str] = None
+    dosage_form: Optional[str] = None
+    strength: Optional[str] = None
+    pack_size: Optional[str] = None
+    description: Optional[str] = None
 
 
 class MedicineSearchResponse(BaseModel):
